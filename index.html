@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1115" />
+  <title>SparkKit — Apprentice Toolkit</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon.svg" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="bolt" aria-hidden="true">⚡</span>
+      <span>SparkKit</span>
+    </div>
+    <span class="region" title="Australian / New Zealand standards">AS/NZS · 230/400V</span>
+  </header>
+
+  <section class="ask" id="ask">
+    <div class="ask-bar">
+      <span class="ask-ico" aria-hidden="true">🔎</span>
+      <input id="ask-input" type="search" inputmode="search" autocomplete="off"
+             placeholder="Ask a standard… e.g. max voltage drop, RCD for power points" />
+    </div>
+    <p class="ask-sub">Points you to the right standard to read — the final call is always the licensed person's.</p>
+    <div id="ask-results" class="ask-results" hidden></div>
+  </section>
+
+  <main id="app">
+    <!-- OHM'S LAW -->
+    <section class="screen" id="ohms" data-screen>
+      <h1>Ohm's Law &amp; Power</h1>
+      <p class="sub">Enter any two values — the rest are calculated.</p>
+      <div class="card">
+        <div class="grid2">
+          <label>Voltage <span>V</span>
+            <input id="ohm-v" type="text" inputmode="decimal" placeholder="volts" />
+          </label>
+          <label>Current <span>A</span>
+            <input id="ohm-i" type="text" inputmode="decimal" placeholder="amps" />
+          </label>
+          <label>Resistance <span>Ω</span>
+            <input id="ohm-r" type="text" inputmode="decimal" placeholder="ohms" />
+          </label>
+          <label>Power <span>W</span>
+            <input id="ohm-p" type="text" inputmode="decimal" placeholder="watts" />
+          </label>
+        </div>
+        <div class="row">
+          <button class="btn" data-calc="ohms">Calculate</button>
+          <button class="btn ghost" data-clear="ohms">Clear</button>
+        </div>
+        <p class="result" id="ohm-result" aria-live="polite"></p>
+      </div>
+      <p class="clause">V = I·R &nbsp;·&nbsp; P = V·I &nbsp;·&nbsp; P = I²·R</p>
+    </section>
+
+    <!-- VOLTAGE DROP -->
+    <section class="screen" id="vdrop" data-screen hidden>
+      <h1>Voltage Drop</h1>
+      <p class="sub">Pick the unknown, enter the other three.</p>
+      <div class="card">
+        <label class="full">Solve for
+          <select id="vd-solve">
+            <option value="vd">Voltage drop (V)</option>
+            <option value="i">Current (A)</option>
+            <option value="l">Route length (m)</option>
+            <option value="k">Cable mV/A/m</option>
+          </select>
+        </label>
+        <div class="grid2">
+          <label data-vd="vd">Voltage drop <span>V</span>
+            <input id="vd-vd" type="text" inputmode="decimal" placeholder="volts" />
+          </label>
+          <label data-vd="i">Current <span>A</span>
+            <input id="vd-i" type="text" inputmode="decimal" placeholder="amps" />
+          </label>
+          <label data-vd="l">Route length <span>m</span>
+            <input id="vd-l" type="text" inputmode="decimal" placeholder="metres (one way)" />
+          </label>
+          <label data-vd="k">Cable mV/A/m <span>AS/NZS 3008</span>
+            <input id="vd-k" type="text" inputmode="decimal" placeholder="from cable table" />
+          </label>
+        </div>
+        <div class="grid2">
+          <label>Phase
+            <select id="vd-phase">
+              <option value="single">Single (230V)</option>
+              <option value="three">Three (400V)</option>
+            </select>
+          </label>
+          <label>Nominal voltage <span>V</span>
+            <input id="vd-nominal" type="text" inputmode="decimal" value="230" />
+          </label>
+        </div>
+        <label class="full">Max drop allowed <span>%</span>
+          <input id="vd-limit" type="text" inputmode="decimal" value="5" />
+        </label>
+        <div class="row">
+          <button class="btn" data-calc="vdrop">Calculate</button>
+          <button class="btn ghost" data-clear="vdrop">Clear</button>
+        </div>
+        <p class="result" id="vd-result" aria-live="polite"></p>
+      </div>
+      <p class="clause">Vd = (L × I × mV/A/m) ÷ 1000 &nbsp;·&nbsp; limit AS/NZS 3000 Cl 3.6.2 (5%). Use the single- or three-phase mV/A/m value to match the phase selected.</p>
+    </section>
+
+    <!-- THREE PHASE -->
+    <section class="screen" id="three" data-screen hidden>
+      <h1>Three-Phase Power</h1>
+      <p class="sub">Balanced load. Enter line voltage, line current &amp; power factor.</p>
+      <div class="card">
+        <div class="grid2">
+          <label>Line voltage V<sub>L</sub> <span>V</span>
+            <input id="tp-vl" type="text" inputmode="decimal" placeholder="400" />
+          </label>
+          <label>Line current I<sub>L</sub> <span>A</span>
+            <input id="tp-il" type="text" inputmode="decimal" placeholder="amps" />
+          </label>
+          <label>Power factor <span>0–1</span>
+            <input id="tp-pf" type="text" inputmode="decimal" placeholder="0.8" />
+          </label>
+          <label>Phase voltage V<sub>ph</sub> <span>V (calc)</span>
+            <input id="tp-vph" type="text" inputmode="decimal" placeholder="auto" readonly />
+          </label>
+        </div>
+        <div class="row">
+          <button class="btn" data-calc="three">Calculate</button>
+          <button class="btn ghost" data-clear="three">Clear</button>
+        </div>
+        <p class="result" id="tp-result" aria-live="polite"></p>
+      </div>
+      <p class="clause">V<sub>L</sub> = √3 · V<sub>ph</sub> &nbsp;·&nbsp; P = √3 · V<sub>L</sub> · I<sub>L</sub> · pf &nbsp;·&nbsp; S = √3 · V<sub>L</sub> · I<sub>L</sub></p>
+    </section>
+
+    <!-- CONDUIT FILL + DERATINGS -->
+    <section class="screen" id="conduit" data-screen hidden>
+      <h1>Conduit Fill</h1>
+      <p class="sub">Cable overall diameters vs conduit internal diameter.</p>
+      <div class="card">
+        <label class="full">Conduit internal diameter <span>mm</span>
+          <input id="cf-id" type="text" inputmode="decimal" placeholder="e.g. 20.4 for 25mm PVC" />
+        </label>
+        <div id="cf-cables"></div>
+        <div class="row">
+          <button class="btn ghost" id="cf-add">+ Add cable</button>
+        </div>
+        <div class="row">
+          <button class="btn" data-calc="conduit">Calculate</button>
+          <button class="btn ghost" data-clear="conduit">Clear</button>
+        </div>
+        <p class="result" id="cf-result" aria-live="polite"></p>
+      </div>
+      <p class="clause">Fill % = Σ cable CSA ÷ conduit CSA. Common limits: 1 cable 53%, 2 cables 31%, 3+ cables 40%. Verify space factors in AS/NZS 3000 Section 3.</p>
+
+      <h2 class="section-h">Cable Deratings</h2>
+      <p class="sub">Start from the table current-carrying capacity, then apply correction factors.</p>
+      <div class="card">
+        <div class="grid2">
+          <label>Base capacity <span>A — AS/NZS 3008</span>
+            <input id="dr-base" type="text" inputmode="decimal" placeholder="from table" />
+          </label>
+          <label>Design load <span>A</span>
+            <input id="dr-load" type="text" inputmode="decimal" placeholder="circuit current" />
+          </label>
+          <label>Ambient temp factor
+            <input id="dr-ka" type="text" inputmode="decimal" value="1.00" />
+          </label>
+          <label>Grouping factor
+            <input id="dr-kg" type="text" inputmode="decimal" value="1.00" />
+          </label>
+          <label>Thermal insulation
+            <input id="dr-ki" type="text" inputmode="decimal" value="1.00" />
+          </label>
+          <label>Other factor
+            <input id="dr-ko" type="text" inputmode="decimal" value="1.00" />
+          </label>
+        </div>
+        <details class="hint">
+          <summary>Typical factors (indicative — confirm against AS/NZS 3008)</summary>
+          <ul>
+            <li><b>Ambient:</b> ~1.0 at reference temp; falls as ambient rises (e.g. ~0.88 hotter, lower in roof spaces).</li>
+            <li><b>Grouping (bunched):</b> 2 ckts ≈ 0.80, 3 ≈ 0.70, 4 ≈ 0.65, 6 ≈ 0.57.</li>
+            <li><b>Thermal insulation:</b> one side ≈ 0.75; fully surrounded ≈ 0.50.</li>
+          </ul>
+        </details>
+        <div class="row">
+          <button class="btn" data-calc="derate">Calculate</button>
+          <button class="btn ghost" data-clear="derate">Clear</button>
+        </div>
+        <p class="result" id="dr-result" aria-live="polite"></p>
+      </div>
+      <p class="clause">Derated capacity = base × ambient × grouping × insulation × other. Must stay ≥ design load.</p>
+    </section>
+
+    <!-- RULES -->
+    <section class="screen" id="rules" data-screen hidden>
+      <h1>Rules Reference</h1>
+      <p class="sub">Quick cards. Always verify against the current standard.</p>
+
+      <div class="card rulecard">
+        <h3>Cable colours (AU)</h3>
+        <p><b>Single phase:</b> Active brown (was red), Neutral blue (was black), Earth green/yellow.</p>
+        <p><b>Three phase:</b> Brown · Black · Grey (was Red · White · Blue).</p>
+      </div>
+      <div class="card rulecard">
+        <h3>IP ratings</h3>
+        <p><b>1st digit (solids):</b> 4 = &gt;1mm wire · 5 = dust protected · 6 = dust tight.</p>
+        <p><b>2nd digit (water):</b> 4 = splash · 5 = jets · 6 = strong jets · 7 = immersion.</p>
+      </div>
+      <div class="card rulecard">
+        <h3>RCD protection (AS/NZS 3000)</h3>
+        <p>≤30mA RCD required on socket-outlet and lighting final subcircuits in domestic installations. Verify exemptions and circuit grouping limits.</p>
+      </div>
+      <div class="card rulecard">
+        <h3>Disconnection times (typical)</h3>
+        <p>Final subcircuits ≤63A (socket-outlets): 0.4s. Distribution / fixed ≤32A: up to 5s. Confirm earthing system and Table values.</p>
+      </div>
+      <div class="card rulecard">
+        <h3>Voltage drop limit</h3>
+        <p>Max 5% from point of supply to any point in the installation (AS/NZS 3000 Cl 3.6.2).</p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab active" data-go="ohms"><span>Ω</span>Ohm's</button>
+    <button class="tab" data-go="vdrop"><span>V↓</span>V-Drop</button>
+    <button class="tab" data-go="three"><span>3Φ</span>3-Phase</button>
+    <button class="tab" data-go="conduit"><span>◎</span>Conduit</button>
+    <button class="tab" data-go="rules"><span>§</span>Rules</button>
+  </nav>
+
+  <p class="disclaimer">Study &amp; field aid only. Verify every result against current AS/NZS standards and your licensed supervisor before relying on it.</p>
+
+  <script src="app.js"></script>
+</body>
+</html>
