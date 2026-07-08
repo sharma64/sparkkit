@@ -33,8 +33,14 @@ python3 -m http.server 5173
 
 Installable to a phone home screen and works offline (service worker caches the app shell).
 
+## Receipts (Phase 2 — in progress)
+
+Receipt capture lives in its own workspace: [`receipts/`](receipts/README.md).
+Photograph a receipt, Claude extracts the details (merchant, date, total, GST,
+category), and everything is stored on-device with monthly totals and CSV export.
+
 ## Roadmap
 
-- **Phase 2:** job invoicing + receipt capture.
+- **Phase 2:** job invoicing + receipt capture *(receipt capture started — see `receipts/`)*.
 - Max-demand calculator and cable current-capacity tables (needs verified AS/NZS 3008 / 3000 table data).
 - Native wrapper once the web version feels right.

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1115" />
+  <title>SparkKit Receipts</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon.svg" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="bolt" aria-hidden="true">🧾</span>
+      <span>SparkKit Receipts</span>
+    </div>
+    <span class="region" title="Data stays on this device">on-device data</span>
+  </header>
+
+  <main id="app">
+    <!-- SCAN -->
+    <section class="screen" id="scan" data-screen>
+      <h1>Scan a receipt</h1>
+      <p class="sub">Photograph it (or pick several) — the details are extracted and filed automatically.</p>
+      <div class="card">
+        <input id="file-input" type="file" accept="image/*" capture="environment" multiple hidden />
+        <button class="btn big" id="btn-camera">📷 &nbsp;Photograph receipt</button>
+        <div class="row">
+          <button class="btn ghost full-w" id="btn-gallery">🖼 Choose from gallery</button>
+        </div>
+        <p class="result" id="scan-status" aria-live="polite"></p>
+        <div id="scan-queue"></div>
+      </div>
+      <p class="clause">Photos are downscaled on your phone, sent once to the Claude API for extraction, then only the extracted data + a thumbnail are kept — locally.</p>
+      <div class="card warn" id="no-key-warning" hidden>
+        <p><b>No API key set.</b> Add your Anthropic API key in the Settings tab before scanning.</p>
+      </div>
+    </section>
+
+    <!-- RECEIPTS LIST -->
+    <section class="screen" id="list" data-screen hidden>
+      <h1>Receipts</h1>
+      <p class="sub" id="list-count">No receipts yet.</p>
+      <div class="filters">
+        <input id="flt-search" type="search" placeholder="Search merchant, item, note…" autocomplete="off" />
+        <div class="grid2">
+          <label>Month
+            <select id="flt-month"><option value="">All</option></select>
+          </label>
+          <label>Category
+            <select id="flt-cat"><option value="">All</option></select>
+          </label>
+        </div>
+      </div>
+      <div id="receipt-list"></div>
+      <div class="row">
+        <button class="btn" id="btn-export">⬇ Export CSV (current view)</button>
+      </div>
+    </section>
+
+    <!-- TOTALS -->
+    <section class="screen" id="totals" data-screen hidden>
+      <h1>Totals</h1>
+      <p class="sub">Spend and GST, by month and category.</p>
+      <div class="card">
+        <label class="full">Month
+          <select id="tot-month"></select>
+        </label>
+        <div class="stat-row">
+          <div class="stat"><span class="stat-label">Spend</span><span class="stat-val" id="tot-spend">–</span></div>
+          <div class="stat"><span class="stat-label">GST</span><span class="stat-val" id="tot-gst">–</span></div>
+          <div class="stat"><span class="stat-label">Receipts</span><span class="stat-val" id="tot-count">–</span></div>
+        </div>
+        <div id="tot-cats"></div>
+      </div>
+      <h2 class="section-h">By month</h2>
+      <div class="card" id="tot-months"></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="screen" id="settings" data-screen hidden>
+      <h1>Settings</h1>
+      <p class="sub">The API key is stored only in this browser and sent only to api.anthropic.com.</p>
+      <div class="card">
+        <label class="full">Anthropic API key <span>sk-ant-…</span>
+          <input id="set-key" type="password" autocomplete="off" placeholder="paste your API key" />
+        </label>
+        <div class="row">
+          <button class="btn" id="btn-save-key">Save key</button>
+          <button class="btn ghost" id="btn-clear-key">Remove</button>
+        </div>
+        <p class="result" id="key-status" aria-live="polite"></p>
+      </div>
+      <h2 class="section-h">Data</h2>
+      <div class="card">
+        <div class="row">
+          <button class="btn ghost full-w" id="btn-export-all">⬇ Export all receipts (CSV)</button>
+        </div>
+        <div class="row">
+          <button class="btn danger" id="btn-wipe">Delete all receipts</button>
+        </div>
+      </div>
+      <p class="clause">Everything lives in this browser's storage. Export a CSV before clearing your browser data or switching phones.</p>
+    </section>
+  </main>
+
+  <!-- RECEIPT DETAIL / EDIT -->
+  <dialog id="detail">
+    <form method="dialog" class="detail-card" id="detail-form">
+      <div class="detail-head">
+        <img id="d-thumb" alt="" />
+        <button type="button" class="close-x" id="d-close" aria-label="Close">✕</button>
+      </div>
+      <div class="grid2">
+        <label class="full">Merchant
+          <input id="d-merchant" type="text" />
+        </label>
+        <label>Date
+          <input id="d-date" type="date" />
+        </label>
+        <label>Total
+          <input id="d-total" type="text" inputmode="decimal" />
+        </label>
+        <label>GST
+          <input id="d-gst" type="text" inputmode="decimal" />
+        </label>
+        <label>Category
+          <select id="d-cat"></select>
+        </label>
+        <label class="full">Payment
+          <input id="d-payment" type="text" />
+        </label>
+        <label class="full">Notes
+          <input id="d-notes" type="text" />
+        </label>
+      </div>
+      <div id="d-items" class="d-items"></div>
+      <div class="row">
+        <button type="button" class="btn" id="d-save">Save</button>
+        <button type="button" class="btn ghost danger-text" id="d-delete">Delete</button>
+      </div>
+    </form>
+  </dialog>
+
+  <nav class="tabbar">
+    <button class="tab active" data-go="scan"><span>📷</span>Scan</button>
+    <button class="tab" data-go="list"><span>🧾</span>Receipts</button>
+    <button class="tab" data-go="totals"><span>Σ</span>Totals</button>
+    <button class="tab" data-go="settings"><span>⚙</span>Settings</button>
+  </nav>
+
+  <p class="disclaimer">Extraction is AI-assisted — review amounts before relying on them for tax or invoicing.</p>
+
+  <script src="app.js"></script>
+</body>
+</html>
