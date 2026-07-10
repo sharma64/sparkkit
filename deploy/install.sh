@@ -23,8 +23,14 @@ SPARKKIT_RECEIPTS_DB=$DB
 SPARKKIT_RECEIPTS_TOKEN=$(openssl rand -hex 32)
 SPARKKIT_RECEIPTS_HOST=127.0.0.1
 SPARKKIT_RECEIPTS_PORT=8787
+# Required for the phone's Scan tab to work without its own key — paste
+# an Anthropic API key below, then: sudo systemctl restart sparkkit-receipts
+ANTHROPIC_API_KEY=
 EOF
   chmod 600 "$ENV_FILE"
+fi
+if ! grep -q '^ANTHROPIC_API_KEY=.' "$ENV_FILE"; then
+  echo "NOTE: ANTHROPIC_API_KEY is not set in $ENV_FILE — phone scans will fail until you add it and run: systemctl restart sparkkit-receipts"
 fi
 
 install -m 644 "$SRV/deploy/sparkkit-receipts.service" /etc/systemd/system/
