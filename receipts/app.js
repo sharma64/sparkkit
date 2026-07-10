@@ -18,7 +18,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
 
 const CATEGORIES = [
   'Tools', 'Materials', 'Fuel', 'Vehicle', 'PPE & Workwear',
-  'Food & Drink', 'Training', 'Office & Admin', 'Other',
+  'Food & Drink', 'Training', 'Office & Admin', 'Home Building', 'Other',
 ];
 
 // ---- tab navigation ---------------------------------------------
@@ -56,6 +56,113 @@ function show(id, html, state) {
   el.innerHTML = html;
   el.className = 'result' + (state ? ' ' + state : '');
 }
+
+// ---- storage: Ledger sync server ---------------------------------
+const SRV_URL = 'receipts.serverUrl';
+const SRV_TOKEN = 'receipts.serverToken';
+const SRV_DELETES = 'receipts.pendingDeletes';
+
+const getServer = () => {
+  const url = (localStorage.getItem(SRV_URL) || '').replace(/\/+$/, '');
+  const token = localStorage.getItem(SRV_TOKEN) || '';
+  return url && token ? { url, token } : null;
+};
+const pendingDeletes = () => JSON.parse(localStorage.getItem(SRV_DELETES) || '[]');
+const setPendingDeletes = (ids) => localStorage.setItem(SRV_DELETES, JSON.stringify(ids));
+const queueDelete = (id) => setPendingDeletes([...new Set([...pendingDeletes(), id])]);
+
+async function serverFetch(path, opts = {}) {
+  const srv = getServer();
+  if (!srv) throw new Error('No server configured.');
+  const res = await fetch(srv.url + path, {
+    ...opts,
+    headers: { authorization: `Bearer ${srv.token}`, ...(opts.headers || {}) },
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || `server error ${res.status}`);
+  return body;
+}
+
+// Push dirty records and queued deletions, then pull the server's view.
+// The server (fed by Ledger) is the source of truth for anything not
+// locally dirty; local thumbnails are kept when the server has none.
+let syncing = false;
+async function syncNow() {
+  if (!getServer() || syncing) return false;
+  syncing = true;
+  try {
+    for (const r of (await dbAll()).filter((x) => x._dirty)) {
+      const { _dirty, ...rec } = r;
+      const { receipt } = await serverFetch('/receipts/upsert', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(rec),
+      });
+      await dbPut({ ...receipt, thumb: receipt.thumb || rec.thumb || '' });
+    }
+    for (const id of pendingDeletes()) {
+      await serverFetch(`/receipts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    }
+    setPendingDeletes([]);
+
+    const { receipts } = await serverFetch('/receipts');
+    const localById = new Map((await dbAll()).map((r) => [r.id, r]));
+    const serverIds = new Set(receipts.map((r) => r.id));
+    for (const r of receipts) {
+      const mine = localById.get(r.id);
+      if (mine?._dirty) continue;
+      if (!r.thumb && mine?.thumb) r.thumb = mine.thumb;
+      await dbPut(r);
+    }
+    for (const [id, r] of localById) {
+      if (!serverIds.has(id) && !r._dirty) await dbDelete(id);
+    }
+    return true;
+  } finally {
+    syncing = false;
+  }
+}
+
+// Fire-and-forget sync after local changes; failures wait for the next one.
+const syncSoon = () => { if (getServer()) syncNow().catch(() => {}); };
+
+$('btn-save-server').addEventListener('click', async () => {
+  const url = $('set-server').value.trim().replace(/\/+$/, '');
+  const token = $('set-token').value.trim();
+  if (!url || !token) return show('server-status', 'Enter the server URL and token.', 'bad');
+  localStorage.setItem(SRV_URL, url);
+  localStorage.setItem(SRV_TOKEN, token);
+  show('server-status', 'Connecting…');
+  try {
+    // Mark everything local for push so nothing is lost on first sync.
+    for (const r of await dbAll()) {
+      if (!r._dirty) { r._dirty = true; await dbPut(r); }
+    }
+    await syncNow();
+    show('server-status', 'Connected — synced with Ledger.', 'ok');
+    renderList();
+  } catch (err) {
+    show('server-status', `Could not connect: ${esc(err.message)}`, 'bad');
+  }
+});
+$('btn-clear-server').addEventListener('click', () => {
+  localStorage.removeItem(SRV_URL);
+  localStorage.removeItem(SRV_TOKEN);
+  $('set-server').value = '';
+  $('set-token').value = '';
+  show('server-status', 'Server removed — this device is local-only again.', 'ok');
+});
+$('btn-sync').addEventListener('click', async () => {
+  if (!getServer()) return show('server-status', 'Add the server URL and token first.', 'bad');
+  show('server-status', 'Syncing…');
+  try {
+    await syncNow();
+    show('server-status', `Synced at ${new Date().toLocaleTimeString('en-AU')}.`, 'ok');
+    renderList();
+  } catch (err) {
+    show('server-status', `Sync failed: ${esc(err.message)}`, 'bad');
+  }
+});
 
 // ---- storage: IndexedDB -----------------------------------------
 let db;
@@ -222,6 +329,7 @@ $('file-input').addEventListener('change', async (e) => {
         payment_method: data.payment_method,
         items: data.items || [],
         notes: data.notes,
+        _dirty: true,
       };
       await dbPut(record);
       row.classList.add('done');
@@ -239,6 +347,7 @@ $('file-input').addEventListener('change', async (e) => {
     `<b>${saved}</b> saved` + (failed ? `, ${failed} skipped/failed` : '') +
     (saved ? ' — see the Receipts tab.' : ''),
     failed && !saved ? 'bad' : 'ok');
+  if (saved) syncSoon();
 });
 
 // ---- receipts list -----------------------------------------------
@@ -339,18 +448,22 @@ $('d-save').addEventListener('click', async () => {
     category: $('d-cat').value,
     payment_method: $('d-payment').value.trim() || null,
     notes: $('d-notes').value.trim() || null,
+    _dirty: true,
   });
   await dbPut(editing);
   $('detail').close();
   renderList();
+  syncSoon();
 });
 
 $('d-delete').addEventListener('click', async () => {
   if (!editing) return;
   if (!confirm('Delete this receipt?')) return;
   await dbDelete(editing.id);
+  if (getServer()) queueDelete(editing.id);
   $('detail').close();
   renderList();
+  syncSoon();
 });
 
 $('d-close').addEventListener('click', () => $('detail').close());
@@ -444,6 +557,11 @@ $('btn-wipe').addEventListener('click', async () => {
 openDB().then(() => {
   $('set-key').value = getKey();
   $('no-key-warning').hidden = !!getKey();
+  $('set-server').value = localStorage.getItem(SRV_URL) || '';
+  $('set-token').value = localStorage.getItem(SRV_TOKEN) || '';
+  if (getServer()) {
+    syncNow().then(() => { if (!$('list').hidden) renderList(); }).catch(() => {});
+  }
 });
 
 // ---- service worker (offline shell) ----------------------------------

@@ -93,6 +93,23 @@
         </div>
         <p class="result" id="key-status" aria-live="polite"></p>
       </div>
+      <h2 class="section-h">Ledger sync</h2>
+      <div class="card">
+        <label class="full">Server URL <span>https://…/api</span>
+          <input id="set-server" type="url" autocomplete="off" placeholder="https://receipts.example.au/api" />
+        </label>
+        <label class="full">Server token
+          <input id="set-token" type="password" autocomplete="off" placeholder="paste the bearer token" />
+        </label>
+        <div class="row">
+          <button class="btn" id="btn-save-server">Save &amp; sync</button>
+          <button class="btn ghost" id="btn-clear-server">Remove</button>
+        </div>
+        <div class="row">
+          <button class="btn ghost full-w" id="btn-sync">⇅ Sync now</button>
+        </div>
+        <p class="result" id="server-status" aria-live="polite"></p>
+      </div>
       <h2 class="section-h">Data</h2>
       <div class="card">
         <div class="row">
@@ -102,7 +119,7 @@
           <button class="btn danger" id="btn-wipe">Delete all receipts</button>
         </div>
       </div>
-      <p class="clause">Everything lives in this browser's storage. Export a CSV before clearing your browser data or switching phones.</p>
+      <p class="clause">Everything lives in this browser's storage. With Ledger sync on, receipts are also kept on your own server — receipts captured via Ledger (Discord, iCloud) appear here after a sync.</p>
     </section>
   </main>
 

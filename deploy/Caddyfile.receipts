@@ -1,0 +1,20 @@
+# SparkKit Receipts — append to /etc/caddy/Caddyfile, then: sudo systemctl reload caddy
+
+receipts.circuitandsoil.au {
+	encode zstd gzip
+
+	handle_path /api/* {
+		reverse_proxy 127.0.0.1:8787
+	}
+
+	handle {
+		root * /srv/sparkkit/receipts
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+	}
+}
