@@ -43,6 +43,17 @@ python3 -m http.server 5173
 > ⚠️ The camera and service worker need a secure context: `localhost` is fine
 > for development; use HTTPS (e.g. GitHub Pages) on a phone.
 
+## Server handoff
+
+A private server API design and stdlib SQLite reference implementation now live in:
+
+- [`SERVER_API.md`](SERVER_API.md)
+- [`server.py`](server.py)
+- [`receipt_cli.py`](receipt_cli.py)
+- [`CHAT_INTAKE.md`](CHAT_INTAKE.md)
+
+The current PWA is still local-first/IndexedDB. The server code is not exposed or started by default; it is the compatibility target for moving extraction, storage, CSV import/export, and sync server-side.
+
 ## Roadmap
 
 - Optional cheaper model toggle for bulk back-scanning of old receipts.

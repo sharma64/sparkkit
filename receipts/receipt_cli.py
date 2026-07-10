@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Chat/CLI intake for SparkKit Receipts.
+
+Examples:
+  # Store model-extracted JSON, useful from Forge after image analysis
+  python3 receipts/receipt_cli.py add-json extracted.json
+
+  # Extract a receipt image using server-side Anthropic credentials, then store it
+  ANTHROPIC_API_KEY=... python3 receipts/receipt_cli.py ingest-image receipt.jpg
+
+  # Ask data questions via deterministic summaries
+  python3 receipts/receipt_cli.py summary --fy current
+  python3 receipts/receipt_cli.py list --q bunnings
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import mimetypes
+import os
+import sys
+from pathlib import Path
+
+import requests
+
+try:
+    import server
+    from contract import CATEGORIES, PROMPT, RECEIPT_SCHEMA
+except ImportError:  # pragma: no cover
+    from . import server
+    from .contract import CATEGORIES, PROMPT, RECEIPT_SCHEMA
+
+
+IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
+
+def read_json_arg(value: str) -> dict:
+    if value == "-":
+        return json.load(sys.stdin)
+    stripped = value.lstrip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        return json.loads(value)
+    p = Path(value)
+    if p.exists():
+        return json.loads(p.read_text())
+    return json.loads(value)
+
+
+def media_type_for(path: Path) -> str:
+    mt = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    if mt == "image/jpg":
+        mt = "image/jpeg"
+    return mt
+
+
+def image_to_base64(path: Path) -> tuple[str, str]:
+    mt = media_type_for(path)
+    if mt not in IMAGE_TYPES:
+        raise SystemExit(f"Unsupported image type {mt}. Use jpg/png/webp/gif for model extraction.")
+    data = path.read_bytes()
+    # Optional downscale hook. Pillow is intentionally not a hard dependency for this static repo.
+    return mt, base64.b64encode(data).decode("ascii")
+
+
+def anthropic_extract(path: Path) -> dict:
+    key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("SPARKKIT_ANTHROPIC_API_KEY")
+    if not key:
+        raise SystemExit("Missing ANTHROPIC_API_KEY or SPARKKIT_ANTHROPIC_API_KEY")
+    model = os.environ.get("SPARKKIT_RECEIPTS_MODEL", "claude-opus-4-8")
+    media_type, b64 = image_to_base64(path)
+    res = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "content-type": "application/json",
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+        },
+        json={
+            "model": model,
+            "max_tokens": 4096,
+            "output_config": {"format": {"type": "json_schema", "schema": RECEIPT_SCHEMA}},
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
+                    {"type": "text", "text": PROMPT},
+                ],
+            }],
+        },
+        timeout=90,
+    )
+    body = res.json() if res.headers.get("content-type", "").startswith("application/json") else None
+    if not res.ok:
+        msg = (body or {}).get("error", {}).get("message") if isinstance(body, dict) else None
+        raise SystemExit(msg or f"Anthropic HTTP {res.status_code}")
+    if body.get("stop_reason") == "refusal":
+        raise SystemExit("Model declined to process this image")
+    if body.get("stop_reason") == "max_tokens":
+        raise SystemExit("Model response was cut off; try a clearer photo")
+    text = next((b.get("text") for b in body.get("content", []) if b.get("type") == "text"), None)
+    if not text:
+        raise SystemExit("No extraction JSON returned")
+    return json.loads(text)
+
+
+def store_extracted(data: dict, *, thumb: str = "") -> dict | None:
+    if not data.get("is_receipt"):
+        return None
+    record = {
+        "thumb": thumb,
+        "merchant": data.get("merchant") or "Unknown merchant",
+        "date": data.get("date"),
+        "total": data.get("total"),
+        "gst": data.get("gst"),
+        "currency": data.get("currency") or "AUD",
+        "category": data.get("category") if data.get("category") in CATEGORIES else "Other",
+        "payment_method": data.get("payment_method"),
+        "items": data.get("items") or [],
+        "notes": data.get("notes"),
+    }
+    return server.upsert_record(record)
+
+
+def confirmation(record: dict | None) -> str:
+    if record is None:
+        return "Not a receipt — stored nothing."
+    total = record.get("total")
+    currency = record.get("currency") or "AUD"
+    amount = "unknown total" if total is None else f"{currency} {float(total):.2f}"
+    return f"Saved: {record.get('merchant')} · {record.get('date') or 'no date'} · {amount} · {record.get('category')}"
+
+
+def cmd_init(_args):
+    server.init_db()
+    print(f"Initialised {server.DB_PATH}")
+
+
+def cmd_add_json(args):
+    server.init_db()
+    data = read_json_arg(args.json)
+    record = store_extracted(data)
+    print(confirmation(record))
+    if args.print_record and record:
+        print(json.dumps(record, indent=2, ensure_ascii=False))
+
+
+def cmd_ingest_image(args):
+    server.init_db()
+    data = anthropic_extract(Path(args.path))
+    if args.print_extraction:
+        print(json.dumps(data, indent=2, ensure_ascii=False), file=sys.stderr)
+    record = store_extracted(data)
+    print(confirmation(record))
+    if args.print_record and record:
+        print(json.dumps(record, indent=2, ensure_ascii=False))
+
+
+def cmd_import_csv(args):
+    server.init_db()
+    text = Path(args.path).read_text(encoding="utf-8-sig") if args.path != "-" else sys.stdin.read()
+    print(json.dumps({"imported": server.import_csv(text)}))
+
+
+def cmd_export_csv(args):
+    server.init_db()
+    params = {}
+    if args.from_date: params["from"] = [args.from_date]
+    if args.to_date: params["to"] = [args.to_date]
+    if args.category: params["category"] = [args.category]
+    if args.q: params["q"] = [args.q]
+    if args.fy: params["fy"] = [args.fy]
+    print(server.csv_from_records(server.list_receipts(params)), end="")
+
+
+def cmd_list(args):
+    server.init_db()
+    params = {}
+    if args.from_date: params["from"] = [args.from_date]
+    if args.to_date: params["to"] = [args.to_date]
+    if args.category: params["category"] = [args.category]
+    if args.q: params["q"] = [args.q]
+    if args.fy: params["fy"] = [args.fy]
+    records = server.list_receipts(params)
+    if args.json:
+        print(json.dumps({"receipts": records}, indent=2, ensure_ascii=False))
+        return
+    for r in records:
+        total = "-" if r.get("total") is None else f"{r.get('currency') or 'AUD'} {float(r['total']):.2f}"
+        print(f"{r.get('date') or 'no date'} | {r.get('merchant')} | {total} | {r.get('category')} | {r.get('id')}")
+
+
+def cmd_summary(args):
+    server.init_db()
+    params = {}
+    if args.from_date: params["from"] = [args.from_date]
+    if args.to_date: params["to"] = [args.to_date]
+    if args.category: params["category"] = [args.category]
+    if args.q: params["q"] = [args.q]
+    if args.fy: params["fy"] = [args.fy]
+    print(json.dumps(server.summary(server.list_receipts(params)), indent=2, ensure_ascii=False))
+
+
+def build_parser():
+    p = argparse.ArgumentParser(description="SparkKit Receipts chat/CLI intake")
+    sub = p.add_subparsers(required=True)
+
+    s = sub.add_parser("init")
+    s.set_defaults(func=cmd_init)
+
+    s = sub.add_parser("add-json", help="store already-extracted receipt JSON")
+    s.add_argument("json", help="JSON string, JSON file, or - for stdin")
+    s.add_argument("--print-record", action="store_true")
+    s.set_defaults(func=cmd_add_json)
+
+    s = sub.add_parser("ingest-image", help="extract image via Anthropic and store receipt")
+    s.add_argument("path")
+    s.add_argument("--print-extraction", action="store_true")
+    s.add_argument("--print-record", action="store_true")
+    s.set_defaults(func=cmd_ingest_image)
+
+    s = sub.add_parser("import-csv")
+    s.add_argument("path", help="CSV file or - for stdin")
+    s.set_defaults(func=cmd_import_csv)
+
+    def add_filters(s):
+        s.add_argument("--from", dest="from_date")
+        s.add_argument("--to", dest="to_date")
+        s.add_argument("--category")
+        s.add_argument("--q")
+        s.add_argument("--fy", choices=["current"])
+
+    s = sub.add_parser("export-csv")
+    add_filters(s)
+    s.set_defaults(func=cmd_export_csv)
+
+    s = sub.add_parser("list")
+    add_filters(s)
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(func=cmd_list)
+
+    s = sub.add_parser("summary")
+    add_filters(s)
+    s.set_defaults(func=cmd_summary)
+    return p
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
+    args.func(args)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

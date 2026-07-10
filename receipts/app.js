@@ -18,7 +18,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
 
 const CATEGORIES = [
   'Tools', 'Materials', 'Fuel', 'Vehicle', 'PPE & Workwear',
-  'Food & Drink', 'Training', 'Office & Admin', 'Other',
+  'Food & Drink', 'Training', 'Office & Admin', 'Home Building', 'Other',
 ];
 
 // ---- tab navigation ---------------------------------------------
