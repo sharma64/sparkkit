@@ -17,14 +17,20 @@ framework, no backend dependencies beyond the receipts API**:
 
 ## Receipts architecture
 
-Two intake paths, one store:
+The PWA has **no client-side Anthropic key and no local-only mode** — it is
+purely a sync client. `Settings → Ledger sync` (Server URL + bearer token)
+is the only configuration surface, and it's deliberately generic: any
+sparkkit-receipts-compatible server works, not just Sharma's. This is so
+the same app can be handed to another client who points it at their own
+agent/server instead. The fields persist in localStorage and reconnect
+automatically on every app open — nothing to re-enter.
 
-1. **Phone PWA** (https://receipts.circuitandsoil.au) — once `Settings →
-   Ledger sync` is configured (bearer token), the Scan tab uploads photos
-   to `POST /api/receipts/extract` and extraction runs server-side with
-   the server's own Anthropic key — the phone needs no key of its own.
-   Without sync configured it falls back to calling Anthropic directly
-   with a key entered in Settings (local-only mode).
+Two intake paths, one store, for Sharma's own deployment:
+
+1. **Phone PWA** (https://receipts.circuitandsoil.au) — Scan uploads photos
+   to `POST /api/receipts/extract`; extraction runs server-side with the
+   server's own Anthropic key. Scanning is disabled (with a prompt to
+   configure Settings) until a server is connected.
 2. **Ledger chat intake** — Discord photos / iCloud shared links, extracted
    server-side, saved via the wrappers in
    `~/.openclaw/workspace-ledger/bin/` (runbook:
@@ -39,9 +45,11 @@ is an offline cache that reconciles on sync. Deployment: `deploy/DEPLOY.md`.
 
 - Keep it dependency-free: vanilla JS in the apps, stdlib-only in
   `server.py`. Match the existing terse style.
-- Extraction rules: strict JSON schema (`contract.py` / `RECEIPT_SCHEMA` in
-  `app.js` — keep them in lockstep, including `CATEGORIES`), null over
-  guessing, gate on `is_receipt`, AUD/GST context.
+- Extraction rules: strict JSON schema, defined once in `contract.py`
+  (`RECEIPT_SCHEMA`, `PROMPT`, `CATEGORIES`) and used only server-side by
+  `server.py`. `app.js` has its own `CATEGORIES` copy for UI dropdowns —
+  keep the two lists in sync. Null over guessing, gate on `is_receipt`,
+  AUD/GST context.
 - Never commit: the SQLite DB, tokens/keys, downloaded receipt images.
 - Deletion of receipt records always requires Sharma's explicit approval,
   one receipt at a time (see the safe-delete wrappers).

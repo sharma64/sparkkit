@@ -30,25 +30,8 @@ document.querySelectorAll('.tab').forEach((tab) => {
     window.scrollTo(0, 0);
     if (go === 'list') renderList();
     if (go === 'totals') renderTotals();
-    if (go === 'scan') refreshKeyUi();
+    if (go === 'scan') refreshServerUi();
   });
-});
-
-// ---- storage: API key -------------------------------------------
-const KEY_STORE = 'receipts.apiKey';
-const getKey = () => localStorage.getItem(KEY_STORE) || '';
-
-$('btn-save-key').addEventListener('click', () => {
-  const v = $('set-key').value.trim();
-  if (!v) return show('key-status', 'Paste a key first.', 'bad');
-  localStorage.setItem(KEY_STORE, v);
-  show('key-status', 'Key saved on this device.', 'ok');
-  refreshKeyUi();
-});
-$('btn-clear-key').addEventListener('click', () => {
-  localStorage.removeItem(KEY_STORE);
-  $('set-key').value = '';
-  show('key-status', 'Key removed.', 'ok');
 });
 
 function show(id, html, state) {
@@ -57,17 +40,15 @@ function show(id, html, state) {
   el.className = 'result' + (state ? ' ' + state : '');
 }
 
-function refreshKeyUi() {
+function refreshServerUi() {
   const srv = !!getServer();
-  $('key-section').hidden = srv;
-  $('no-key-warning').hidden = srv || !!getKey();
-  $('data-region').textContent = srv ? 'synced with Ledger' : 'on-device data';
-  $('scan-clause').textContent = srv
-    ? 'Photos are downscaled on your phone, sent to your server for extraction (Ledger), and kept in sync — on this phone and on your server.'
-    : 'Photos are downscaled on your phone, sent once to the Claude API for extraction, then only the extracted data + a thumbnail are kept — locally.';
+  $('no-server-warning').hidden = srv;
+  const region = $('data-region');
+  region.textContent = srv ? 'synced with server' : 'not connected';
+  region.title = srv ? 'Data is synced with your connected server' : 'Connect a server in Settings to scan and sync';
 }
 
-// ---- storage: Ledger sync server ---------------------------------
+// ---- storage: sync server -----------------------------------------
 const SRV_URL = 'receipts.serverUrl';
 const SRV_TOKEN = 'receipts.serverToken';
 const SRV_DELETES = 'receipts.pendingDeletes';
@@ -142,7 +123,7 @@ $('btn-save-server').addEventListener('click', async () => {
   if (!url || !token) return show('server-status', 'Enter the server URL and token.', 'bad');
   localStorage.setItem(SRV_URL, url);
   localStorage.setItem(SRV_TOKEN, token);
-  refreshKeyUi();
+  refreshServerUi();
   show('server-status', 'Connecting…');
   try {
     // Mark everything local for push so nothing is lost on first sync.
@@ -150,7 +131,7 @@ $('btn-save-server').addEventListener('click', async () => {
       if (!r._dirty) { r._dirty = true; await dbPut(r); }
     }
     await syncNow();
-    show('server-status', 'Connected — synced with Ledger.', 'ok');
+    show('server-status', 'Connected — synced.', 'ok');
     renderList();
   } catch (err) {
     show('server-status', `Could not connect: ${esc(err.message)}`, 'bad');
@@ -161,8 +142,8 @@ $('btn-clear-server').addEventListener('click', () => {
   localStorage.removeItem(SRV_TOKEN);
   $('set-server').value = '';
   $('set-token').value = '';
-  refreshKeyUi();
-  show('server-status', 'Server removed — this device is local-only again.', 'ok');
+  refreshServerUi();
+  show('server-status', 'Server removed — scanning is disabled until reconnected.', 'ok');
 });
 $('btn-sync').addEventListener('click', async () => {
   if (!getServer()) return show('server-status', 'Add the server URL and token first.', 'bad');
@@ -215,82 +196,12 @@ async function loadScaled(file, maxEdge, quality) {
 }
 
 // ---- AI extraction ----------------------------------------------
-const RECEIPT_SCHEMA = {
-  type: 'object',
-  properties: {
-    is_receipt: { type: 'boolean', description: 'False if the image is not a receipt, invoice or till docket.' },
-    merchant: { type: 'string', description: 'Store or business name. Empty string if unreadable.' },
-    date: { anyOf: [{ type: 'string', description: 'Purchase date, YYYY-MM-DD.' }, { type: 'null' }] },
-    total: { anyOf: [{ type: 'number', description: 'Grand total paid.' }, { type: 'null' }] },
-    gst: { anyOf: [{ type: 'number', description: 'GST / tax component if printed.' }, { type: 'null' }] },
-    currency: { type: 'string', description: 'ISO 4217 code, e.g. AUD. Assume AUD if not shown.' },
-    category: { type: 'string', enum: CATEGORIES },
-    payment_method: { anyOf: [{ type: 'string', description: 'e.g. EFTPOS, Visa …1234, cash.' }, { type: 'null' }] },
-    items: {
-      type: 'array',
-      description: 'Line items. Omit loyalty and subtotal lines.',
-      items: {
-        type: 'object',
-        properties: {
-          description: { type: 'string' },
-          amount: { anyOf: [{ type: 'number' }, { type: 'null' }] },
-        },
-        required: ['description', 'amount'],
-        additionalProperties: false,
-      },
-    },
-    notes: { anyOf: [{ type: 'string', description: 'Anything unclear or worth flagging.' }, { type: 'null' }] },
-  },
-  required: ['is_receipt', 'merchant', 'date', 'total', 'gst', 'currency', 'category', 'payment_method', 'items', 'notes'],
-  additionalProperties: false,
-};
-
-const PROMPT =
-  'Extract the data from this receipt photo. The user is an Australian electrical ' +
-  'apprentice organising work expenses. Pick the category that best matches the ' +
-  'purchase. If a value is not printed or not readable, use null rather than guessing.';
-
 async function extractReceipt(imageDataUrl) {
-  const srv = getServer();
-  if (srv) return (await serverFetch('/receipts/extract', {
+  return (await serverFetch('/receipts/extract', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ image: imageDataUrl }),
   })).extraction;
-
-  const b64 = imageDataUrl.split(',')[1];
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': getKey(),
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-opus-4-8',
-      max_tokens: 4096,
-      output_config: { format: { type: 'json_schema', schema: RECEIPT_SCHEMA } },
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
-          { type: 'text', text: PROMPT },
-        ],
-      }],
-    }),
-  });
-
-  const body = await res.json().catch(() => null);
-  if (!res.ok) {
-    const msg = body?.error?.message || `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  if (body.stop_reason === 'refusal') throw new Error('The model declined to process this image.');
-  if (body.stop_reason === 'max_tokens') throw new Error('Response was cut off — try a clearer photo.');
-  const text = body.content?.find((b) => b.type === 'text')?.text;
-  if (!text) throw new Error('No data returned.');
-  return JSON.parse(text);
 }
 
 // ---- scan flow ---------------------------------------------------
@@ -307,9 +218,9 @@ $('file-input').addEventListener('change', async (e) => {
   const files = [...e.target.files];
   e.target.value = '';
   if (!files.length) return;
-  if (!getServer() && !getKey()) {
-    $('no-key-warning').hidden = false;
-    return show('scan-status', 'Add your API key in Settings first.', 'bad');
+  if (!getServer()) {
+    $('no-server-warning').hidden = false;
+    return show('scan-status', 'Add your server URL and token in Settings first.', 'bad');
   }
 
   show('scan-status', `Processing ${files.length} photo${files.length > 1 ? 's' : ''}…`);
@@ -574,10 +485,9 @@ $('btn-wipe').addEventListener('click', async () => {
 
 // ---- init -----------------------------------------------------------
 openDB().then(() => {
-  $('set-key').value = getKey();
   $('set-server').value = localStorage.getItem(SRV_URL) || '';
   $('set-token').value = localStorage.getItem(SRV_TOKEN) || '';
-  refreshKeyUi();
+  refreshServerUi();
   if (getServer()) {
     syncNow().then(() => { if (!$('list').hidden) renderList(); }).catch(() => {});
   }

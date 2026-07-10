@@ -104,11 +104,12 @@ POST /receipts/extract
 Content-Type: application/json
 ```
 
-Body: `{ "image": "data:image/jpeg;base64,..." }` — a downscaled photo as a data
-URL. Runs the same extraction contract as the phone's local mode, but with
-the server's own Anthropic key, so the phone never needs one while sync is
-on. Does **not** store the record; the caller still calls `/receipts/upsert`
-with the result (this is what the PWA's scan flow does).
+Body: `{ "image": "data:image/jpeg;base64,..." }` — a downscaled photo as a
+data URL. Runs the extraction contract (`contract.py`) with the server's
+own Anthropic key. This is the only extraction path the phone PWA has —
+it never holds an Anthropic key of its own. Does **not** store the record;
+the caller still calls `/receipts/upsert` with the result (this is what
+the PWA's scan flow does).
 
 Requires `ANTHROPIC_API_KEY` (or `SPARKKIT_ANTHROPIC_API_KEY`) in the
 server's environment. Returns `502` with an `error` message if that's
