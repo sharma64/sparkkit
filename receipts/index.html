@@ -16,7 +16,7 @@
       <span class="bolt" aria-hidden="true">🧾</span>
       <span>SparkKit Receipts</span>
     </div>
-    <span class="region" id="data-region" title="Data stays on this device">on-device data</span>
+    <span class="region" id="data-region" title="Connect a server in Settings to scan and sync">not connected</span>
   </header>
 
   <main id="app">
@@ -33,9 +33,9 @@
         <p class="result" id="scan-status" aria-live="polite"></p>
         <div id="scan-queue"></div>
       </div>
-      <p class="clause" id="scan-clause">Photos are downscaled on your phone, sent once to the Claude API for extraction, then only the extracted data + a thumbnail are kept — locally.</p>
-      <div class="card warn" id="no-key-warning" hidden>
-        <p><b>No API key set.</b> Add your Anthropic API key in the Settings tab before scanning.</p>
+      <p class="clause" id="scan-clause">Photos are downscaled on your phone, sent to your connected server for extraction, then synced back with a thumbnail.</p>
+      <div class="card warn" id="no-server-warning" hidden>
+        <p><b>No server connected.</b> Add your sync server's URL and token in the Settings tab before scanning.</p>
       </div>
     </section>
 
@@ -84,7 +84,7 @@
       <h1>Settings</h1>
       <h2 class="section-h">Ledger sync</h2>
       <div class="card">
-        <p class="sub">Extraction and storage run on your own server (Ledger). No API key needed on this phone while sync is on.</p>
+        <p class="sub">Extraction and storage run on your connected server. Stays saved on this device — reconnects automatically each time you open the app.</p>
         <label class="full">Server URL <span>https://…/api</span>
           <input id="set-server" type="url" autocomplete="off" placeholder="https://receipts.example.au/api" />
         </label>
@@ -100,20 +100,6 @@
         </div>
         <p class="result" id="server-status" aria-live="polite"></p>
       </div>
-      <div id="key-section">
-        <h2 class="section-h">Local-only extraction</h2>
-        <p class="sub">Only needed without Ledger sync. The key is stored in this browser and sent only to api.anthropic.com.</p>
-        <div class="card">
-          <label class="full">Anthropic API key <span>sk-ant-…</span>
-            <input id="set-key" type="password" autocomplete="off" placeholder="paste your API key" />
-          </label>
-          <div class="row">
-            <button class="btn" id="btn-save-key">Save key</button>
-            <button class="btn ghost" id="btn-clear-key">Remove</button>
-          </div>
-          <p class="result" id="key-status" aria-live="polite"></p>
-        </div>
-      </div>
       <h2 class="section-h">Data</h2>
       <div class="card">
         <div class="row">
@@ -123,7 +109,7 @@
           <button class="btn danger" id="btn-wipe">Delete all receipts</button>
         </div>
       </div>
-      <p class="clause">Everything lives in this browser's storage. With Ledger sync on, receipts are also kept on your own server — receipts captured via Ledger (Discord, iCloud) appear here after a sync.</p>
+      <p class="clause">Receipts are cached in this browser and kept in sync with your connected server — receipts captured elsewhere (Discord, iCloud) appear here after a sync.</p>
     </section>
   </main>
 
