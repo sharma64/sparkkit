@@ -19,9 +19,12 @@ framework, no backend dependencies beyond the receipts API**:
 
 Two intake paths, one store:
 
-1. **Phone PWA** (https://receipts.circuitandsoil.au) — scans with the
-   owner's Anthropic key in-browser, then syncs records to the API
-   (`Settings → Ledger sync`; bearer token).
+1. **Phone PWA** (https://receipts.circuitandsoil.au) — once `Settings →
+   Ledger sync` is configured (bearer token), the Scan tab uploads photos
+   to `POST /api/receipts/extract` and extraction runs server-side with
+   the server's own Anthropic key — the phone needs no key of its own.
+   Without sync configured it falls back to calling Anthropic directly
+   with a key entered in Settings (local-only mode).
 2. **Ledger chat intake** — Discord photos / iCloud shared links, extracted
    server-side, saved via the wrappers in
    `~/.openclaw/workspace-ledger/bin/` (runbook:

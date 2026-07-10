@@ -30,7 +30,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
     window.scrollTo(0, 0);
     if (go === 'list') renderList();
     if (go === 'totals') renderTotals();
-    if (go === 'scan') $('no-key-warning').hidden = !!getKey();
+    if (go === 'scan') refreshKeyUi();
   });
 });
 
@@ -43,7 +43,7 @@ $('btn-save-key').addEventListener('click', () => {
   if (!v) return show('key-status', 'Paste a key first.', 'bad');
   localStorage.setItem(KEY_STORE, v);
   show('key-status', 'Key saved on this device.', 'ok');
-  $('no-key-warning').hidden = true;
+  refreshKeyUi();
 });
 $('btn-clear-key').addEventListener('click', () => {
   localStorage.removeItem(KEY_STORE);
@@ -55,6 +55,16 @@ function show(id, html, state) {
   const el = $(id);
   el.innerHTML = html;
   el.className = 'result' + (state ? ' ' + state : '');
+}
+
+function refreshKeyUi() {
+  const srv = !!getServer();
+  $('key-section').hidden = srv;
+  $('no-key-warning').hidden = srv || !!getKey();
+  $('data-region').textContent = srv ? 'synced with Ledger' : 'on-device data';
+  $('scan-clause').textContent = srv
+    ? 'Photos are downscaled on your phone, sent to your server for extraction (Ledger), and kept in sync — on this phone and on your server.'
+    : 'Photos are downscaled on your phone, sent once to the Claude API for extraction, then only the extracted data + a thumbnail are kept — locally.';
 }
 
 // ---- storage: Ledger sync server ---------------------------------
@@ -132,6 +142,7 @@ $('btn-save-server').addEventListener('click', async () => {
   if (!url || !token) return show('server-status', 'Enter the server URL and token.', 'bad');
   localStorage.setItem(SRV_URL, url);
   localStorage.setItem(SRV_TOKEN, token);
+  refreshKeyUi();
   show('server-status', 'Connecting…');
   try {
     // Mark everything local for push so nothing is lost on first sync.
@@ -150,6 +161,7 @@ $('btn-clear-server').addEventListener('click', () => {
   localStorage.removeItem(SRV_TOKEN);
   $('set-server').value = '';
   $('set-token').value = '';
+  refreshKeyUi();
   show('server-status', 'Server removed — this device is local-only again.', 'ok');
 });
 $('btn-sync').addEventListener('click', async () => {
@@ -239,6 +251,13 @@ const PROMPT =
   'purchase. If a value is not printed or not readable, use null rather than guessing.';
 
 async function extractReceipt(imageDataUrl) {
+  const srv = getServer();
+  if (srv) return (await serverFetch('/receipts/extract', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ image: imageDataUrl }),
+  })).extraction;
+
   const b64 = imageDataUrl.split(',')[1];
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -288,7 +307,7 @@ $('file-input').addEventListener('change', async (e) => {
   const files = [...e.target.files];
   e.target.value = '';
   if (!files.length) return;
-  if (!getKey()) {
+  if (!getServer() && !getKey()) {
     $('no-key-warning').hidden = false;
     return show('scan-status', 'Add your API key in Settings first.', 'bad');
   }
@@ -556,9 +575,9 @@ $('btn-wipe').addEventListener('click', async () => {
 // ---- init -----------------------------------------------------------
 openDB().then(() => {
   $('set-key').value = getKey();
-  $('no-key-warning').hidden = !!getKey();
   $('set-server').value = localStorage.getItem(SRV_URL) || '';
   $('set-token').value = localStorage.getItem(SRV_TOKEN) || '';
+  refreshKeyUi();
   if (getServer()) {
     syncNow().then(() => { if (!$('list').hidden) renderList(); }).catch(() => {});
   }

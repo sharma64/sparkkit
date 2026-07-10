@@ -8,6 +8,7 @@ No public exposure, no secrets in repo. Configure with environment variables:
   SPARKKIT_RECEIPTS_TOKEN=long-random-token
   SPARKKIT_RECEIPTS_HOST=127.0.0.1
   SPARKKIT_RECEIPTS_PORT=8787
+  ANTHROPIC_API_KEY=sk-ant-...   # enables POST /receipts/extract
 
 Run locally:
   SPARKKIT_RECEIPTS_TOKEN=dev-token python3 receipts/server.py
@@ -21,6 +22,8 @@ import json
 import os
 import sqlite3
 import sys
+import urllib.error
+import urllib.request
 import uuid
 from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,9 +31,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 try:
-    from contract import CATEGORIES
+    from contract import CATEGORIES, PROMPT, RECEIPT_SCHEMA
 except ImportError:  # pragma: no cover - package-style import fallback
-    from .contract import CATEGORIES
+    from .contract import CATEGORIES, PROMPT, RECEIPT_SCHEMA
 
 CSV_COLUMNS = ["date", "merchant", "category", "total", "gst", "currency", "payment_method", "items", "notes"]
 RECORD_FIELDS = ["id", "added", "thumb", *CSV_COLUMNS]
@@ -167,6 +170,53 @@ def upsert_record(record: dict) -> dict:
             ),
         )
     return r
+
+
+def anthropic_extract(media_type: str, b64_data: str) -> dict:
+    key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("SPARKKIT_ANTHROPIC_API_KEY")
+    if not key:
+        raise RuntimeError("Server has no ANTHROPIC_API_KEY configured")
+    model = os.environ.get("SPARKKIT_RECEIPTS_MODEL", "claude-opus-4-8")
+    payload = json.dumps({
+        "model": model,
+        "max_tokens": 4096,
+        "output_config": {"format": {"type": "json_schema", "schema": RECEIPT_SCHEMA}},
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64_data}},
+                {"type": "text", "text": PROMPT},
+            ],
+        }],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        method="POST",
+        headers={
+            "content-type": "application/json",
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=90) as res:
+            body = json.loads(res.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read().decode("utf-8"))
+        except Exception:
+            body = None
+        msg = (body or {}).get("error", {}).get("message") if isinstance(body, dict) else None
+        raise RuntimeError(msg or f"Anthropic HTTP {e.code}")
+    if body.get("stop_reason") == "refusal":
+        raise RuntimeError("Model declined to process this image")
+    if body.get("stop_reason") == "max_tokens":
+        raise RuntimeError("Model response was cut off; try a clearer photo")
+    text = next((b.get("text") for b in body.get("content", []) if b.get("type") == "text"), None)
+    if not text:
+        raise RuntimeError("No extraction JSON returned")
+    return json.loads(text)
 
 
 def date_bounds(params: dict[str, list[str]]) -> tuple[str | None, str | None]:
@@ -316,6 +366,21 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {"receipt": upsert_record(payload)})
         if parsed.path == "/receipts/import-csv":
             return self.send_json(200, {"imported": import_csv(body.decode("utf-8-sig"))})
+        if parsed.path == "/receipts/extract":
+            try:
+                payload = json.loads(body.decode("utf-8"))
+            except json.JSONDecodeError:
+                return self.send_json(400, {"error": "invalid json"})
+            image = payload.get("image") or ""
+            if "," not in image or not image.startswith("data:"):
+                return self.send_json(400, {"error": "expected a data: URL in 'image'"})
+            header, b64_data = image.split(",", 1)
+            media_type = header[len("data:"):].split(";")[0] or "image/jpeg"
+            try:
+                extraction = anthropic_extract(media_type, b64_data)
+            except RuntimeError as e:
+                return self.send_json(502, {"error": str(e)})
+            return self.send_json(200, {"extraction": extraction})
         return self.send_json(404, {"error": "not found"})
 
     def do_DELETE(self):
