@@ -1,7 +1,7 @@
 // Offline cache for the app shell (same pattern as the main SparkKit sw.js).
 // Network-first so updates land immediately; cache fallback for offline.
 // API calls to api.anthropic.com are never cached (cross-origin, and POST anyway).
-const CACHE = 'sparkkit-receipts-v1';
+const CACHE = 'sparkkit-receipts-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -25,7 +25,9 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
-  if (new URL(e.request.url).origin !== self.location.origin) return;
+  const url = new URL(e.request.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.includes('/api/')) return; // receipts API is never cached
   e.respondWith(
     fetch(e.request)
       .then((res) => {
