@@ -17,20 +17,27 @@ framework, no backend dependencies beyond the receipts API**:
 
 ## Receipts architecture
 
-The PWA has **no client-side Anthropic key and no local-only mode** — it is
-purely a sync client. `Settings → Ledger sync` (Server URL + bearer token)
-is the only configuration surface, and it's deliberately generic: any
-sparkkit-receipts-compatible server works, not just Sharma's. This is so
-the same app can be handed to another client who points it at their own
-agent/server instead. The fields persist in localStorage and reconnect
-automatically on every app open — nothing to re-enter.
+The PWA is primarily a sync client. `Settings → Ledger sync` (Server URL +
+bearer token) is the main configuration surface, and it's deliberately
+generic: any sparkkit-receipts-compatible server works, not just Sharma's.
+This is so the same app can be handed to another client who points it at
+their own agent/server instead. The fields persist in localStorage and
+reconnect automatically on every app open — nothing to re-enter. There is
+also an *optional* fallback under `Settings → Advanced`: an Anthropic key,
+used only when the server's extract endpoint fails (direct browser call).
+
+Server-side extraction (`POST /receipts/extract`) picks its backend
+automatically: the **openclaw CLI** when installed (`capability model run`
+— rides the box's agent/model account, no API key; this is how forgevps
+runs) with `ANTHROPIC_API_KEY` as the alternative. See
+`receipts/SERVER_API.md` for the env knobs.
 
 Two intake paths, one store, for Sharma's own deployment:
 
 1. **Phone PWA** (https://receipts.circuitandsoil.au) — Scan uploads photos
-   to `POST /api/receipts/extract`; extraction runs server-side with the
-   server's own Anthropic key. Scanning is disabled (with a prompt to
-   configure Settings) until a server is connected.
+   to `POST /api/receipts/extract`; extraction runs server-side via
+   OpenClaw. Scanning is disabled (with a prompt to configure Settings)
+   until a server is connected or a fallback key is saved.
 2. **Ledger chat intake** — Discord photos / iCloud shared links, extracted
    server-side, saved via the wrappers in
    `~/.openclaw/workspace-ledger/bin/` (runbook:

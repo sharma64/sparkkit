@@ -105,15 +105,30 @@ Content-Type: application/json
 ```
 
 Body: `{ "image": "data:image/jpeg;base64,..." }` — a downscaled photo as a
-data URL. Runs the extraction contract (`contract.py`) with the server's
-own Anthropic key. This is the only extraction path the phone PWA has —
-it never holds an Anthropic key of its own. Does **not** store the record;
-the caller still calls `/receipts/upsert` with the result (this is what
-the PWA's scan flow does).
+data URL. Runs the extraction contract (`contract.py`) server-side. Does
+**not** store the record; the caller still calls `/receipts/upsert` with
+the result (this is what the PWA's scan flow does).
 
-Requires `ANTHROPIC_API_KEY` (or `SPARKKIT_ANTHROPIC_API_KEY`) in the
-server's environment. Returns `502` with an `error` message if that's
-missing, if the model declines, or if the response is cut off.
+Backend selection (`SPARKKIT_EXTRACT_BACKEND`, default `auto`):
+
+- **`openclaw`** — shells out to `openclaw capability model run` with the
+  image and the inline-schema prompt (`PROMPT_INLINE_SCHEMA`). Uses the
+  box's existing agent/model account; **no API key needed**. Optional
+  `SPARKKIT_OPENCLAW_MODEL=provider/model` override,
+  `SPARKKIT_OPENCLAW_BIN` to point at a non-PATH binary. Calls take
+  roughly 30–60 s per image.
+- **`anthropic`** — direct Anthropic API call with structured outputs;
+  requires `ANTHROPIC_API_KEY` (or `SPARKKIT_ANTHROPIC_API_KEY`).
+- **`auto`** — openclaw when the CLI is installed, else anthropic when a
+  key is set, else `502`.
+
+Returns `502` with an `error` message if no backend is available, the
+model declines, or the reply isn't parseable.
+
+(The phone PWA also has an *optional* fallback key under Settings →
+Advanced: if this endpoint fails and a key is saved on the device, the
+phone retries directly against the Claude API. With no fallback key it
+simply surfaces the server's error.)
 
 Returns:
 

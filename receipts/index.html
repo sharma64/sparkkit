@@ -100,6 +100,20 @@
         </div>
         <p class="result" id="server-status" aria-live="polite"></p>
       </div>
+      <details id="key-fallback">
+        <summary class="section-h">Advanced: extraction fallback</summary>
+        <p class="sub">Optional. Only used if your server can't extract a receipt — the phone then calls the Claude API directly with this key. Leave empty to rely on the server alone.</p>
+        <div class="card">
+          <label class="full">Anthropic API key <span>sk-ant-…</span>
+            <input id="set-key" type="password" autocomplete="off" placeholder="optional — paste an API key" />
+          </label>
+          <div class="row">
+            <button class="btn" id="btn-save-key">Save key</button>
+            <button class="btn ghost" id="btn-clear-key">Remove</button>
+          </div>
+          <p class="result" id="key-status" aria-live="polite"></p>
+        </div>
+      </details>
       <h2 class="section-h">Data</h2>
       <div class="card">
         <div class="row">

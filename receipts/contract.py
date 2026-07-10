@@ -53,3 +53,18 @@ PROMPT = (
     "that best matches the purchase. If a value is not printed or not readable, use null "
     "rather than guessing."
 )
+
+# Inline-schema variant for backends without structured-output support
+# (e.g. the OpenClaw CLI). Same contract, spelled out in the prompt.
+PROMPT_INLINE_SCHEMA = (
+    PROMPT
+    + " Reply with ONLY a JSON object, no prose and no markdown fences, with keys: "
+    "is_receipt (bool; false if not a receipt, invoice or till docket), "
+    "merchant (string; empty if unreadable), date (YYYY-MM-DD or null), "
+    "total (number or null), gst (number or null), "
+    "currency (ISO 4217 code, assume AUD if not shown), "
+    "category (one of: " + ", ".join(CATEGORIES) + "), "
+    "payment_method (string like 'EFTPOS' or 'Visa …1234', or null), "
+    "items (array of {description, amount} line items; omit loyalty and subtotal lines), "
+    "notes (string or null; anything unclear or worth flagging, maximum 15 words)."
+)
