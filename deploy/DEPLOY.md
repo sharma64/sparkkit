@@ -11,16 +11,16 @@ receipts API (`server.py`) on `127.0.0.1:8787`.
    writes `/etc/sparkkit-receipts.env` (generates the bearer token, printed at
    the end), installs + starts the `sparkkit-receipts` systemd unit, appends
    the Caddy vhost, and reloads Caddy.
-3. Add an Anthropic key so the phone never needs its own:
-   `sudo nano /etc/sparkkit-receipts.env`, set `ANTHROPIC_API_KEY=sk-ant-...`,
-   then `sudo systemctl restart sparkkit-receipts`. Without this, the Scan
-   tab fails with "Server has no ANTHROPIC_API_KEY configured" once a phone
-   has Ledger sync turned on (see `receipts/SERVER_API.md` →
-   `POST /receipts/extract`).
+3. Extraction backend: nothing to configure on forgevps — the `openclaw`
+   CLI is installed, so phone scans ride the box's existing agent/model
+   account (no API key). On a box without OpenClaw, either set
+   `ANTHROPIC_API_KEY=sk-ant-...` in `/etc/sparkkit-receipts.env` and
+   `sudo systemctl restart sparkkit-receipts`, or leave it and give the
+   phone a fallback key (Settings → Advanced). See
+   `receipts/SERVER_API.md` → `POST /receipts/extract`.
 4. On the phone: open the site, Settings → Ledger sync, URL
    `https://receipts.circuitandsoil.au/api`, paste the token, Save & sync.
-   The local "Anthropic API key" section disappears once sync is connected —
-   extraction now runs on the server.
+   No API key is needed on the phone — extraction runs on the server.
 
 ## Updating
 

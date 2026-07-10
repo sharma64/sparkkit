@@ -8,7 +8,12 @@ No public exposure, no secrets in repo. Configure with environment variables:
   SPARKKIT_RECEIPTS_TOKEN=long-random-token
   SPARKKIT_RECEIPTS_HOST=127.0.0.1
   SPARKKIT_RECEIPTS_PORT=8787
-  ANTHROPIC_API_KEY=sk-ant-...   # enables POST /receipts/extract
+
+POST /receipts/extract picks a backend automatically: the OpenClaw CLI when
+installed (rides the box's existing agent/model account — no API key), else
+the Anthropic API when ANTHROPIC_API_KEY is set. Override with
+SPARKKIT_EXTRACT_BACKEND=openclaw|anthropic, and optionally
+SPARKKIT_OPENCLAW_MODEL=provider/model.
 
 Run locally:
   SPARKKIT_RECEIPTS_TOKEN=dev-token python3 receipts/server.py
@@ -16,12 +21,16 @@ Run locally:
 
 from __future__ import annotations
 
+import base64
 import csv
 import io
 import json
 import os
+import shutil
 import sqlite3
+import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 import uuid
@@ -31,9 +40,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 try:
-    from contract import CATEGORIES, PROMPT, RECEIPT_SCHEMA
+    from contract import CATEGORIES, PROMPT, PROMPT_INLINE_SCHEMA, RECEIPT_SCHEMA
 except ImportError:  # pragma: no cover - package-style import fallback
-    from .contract import CATEGORIES, PROMPT, RECEIPT_SCHEMA
+    from .contract import CATEGORIES, PROMPT, PROMPT_INLINE_SCHEMA, RECEIPT_SCHEMA
 
 CSV_COLUMNS = ["date", "merchant", "category", "total", "gst", "currency", "payment_method", "items", "notes"]
 RECORD_FIELDS = ["id", "added", "thumb", *CSV_COLUMNS]
@@ -219,6 +228,61 @@ def anthropic_extract(media_type: str, b64_data: str) -> dict:
     return json.loads(text)
 
 
+def parse_model_json(text: str) -> dict:
+    # Models without structured outputs sometimes wrap JSON in fences/prose.
+    text = text.strip()
+    if not text.startswith("{"):
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end <= start:
+            raise RuntimeError("Extraction reply contained no JSON object")
+        text = text[start:end + 1]
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        raise RuntimeError("Extraction reply was not valid JSON; try a clearer photo")
+
+
+def openclaw_extract(media_type: str, b64_data: str) -> dict:
+    openclaw = os.environ.get("SPARKKIT_OPENCLAW_BIN") or shutil.which("openclaw")
+    if not openclaw:
+        raise RuntimeError("Server has no openclaw CLI available")
+    suffix = "." + (media_type.split("/")[-1] or "jpeg").replace("jpg", "jpeg")
+    cmd = [openclaw, "capability", "model", "run", "--json", "--prompt", PROMPT_INLINE_SCHEMA]
+    model = os.environ.get("SPARKKIT_OPENCLAW_MODEL")
+    if model:
+        cmd += ["--model", model]
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
+        tmp.write(base64.b64decode(b64_data))
+        tmp.flush()
+        cmd += ["--file", tmp.name]
+        try:
+            run = subprocess.run(cmd, capture_output=True, text=True, timeout=150)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("OpenClaw extraction timed out")
+    if run.returncode != 0:
+        raise RuntimeError(f"OpenClaw extraction failed: {(run.stderr or run.stdout).strip()[:200]}")
+    out = parse_model_json(run.stdout)
+    texts = out.get("outputs") or []
+    text = texts[0].get("text") if texts else out.get("text")
+    if not text:
+        raise RuntimeError("OpenClaw returned no extraction text")
+    return parse_model_json(text)
+
+
+def extract_receipt(media_type: str, b64_data: str) -> dict:
+    backend = os.environ.get("SPARKKIT_EXTRACT_BACKEND", "auto")
+    if backend == "openclaw":
+        return openclaw_extract(media_type, b64_data)
+    if backend == "anthropic":
+        return anthropic_extract(media_type, b64_data)
+    # auto: prefer the box's agent account (no API key), fall back to Anthropic.
+    if os.environ.get("SPARKKIT_OPENCLAW_BIN") or shutil.which("openclaw"):
+        return openclaw_extract(media_type, b64_data)
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("SPARKKIT_ANTHROPIC_API_KEY"):
+        return anthropic_extract(media_type, b64_data)
+    raise RuntimeError("Server has no extraction backend: install the openclaw CLI or set ANTHROPIC_API_KEY")
+
+
 def date_bounds(params: dict[str, list[str]]) -> tuple[str | None, str | None]:
     if params.get("fy", [""])[0] == "current":
         today = date.today()
@@ -377,7 +441,7 @@ class Handler(BaseHTTPRequestHandler):
             header, b64_data = image.split(",", 1)
             media_type = header[len("data:"):].split(";")[0] or "image/jpeg"
             try:
-                extraction = anthropic_extract(media_type, b64_data)
+                extraction = extract_receipt(media_type, b64_data)
             except RuntimeError as e:
                 return self.send_json(502, {"error": str(e)})
             return self.send_json(200, {"extraction": extraction})

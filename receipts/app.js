@@ -42,11 +42,27 @@ function show(id, html, state) {
 
 function refreshServerUi() {
   const srv = !!getServer();
-  $('no-server-warning').hidden = srv;
+  $('no-server-warning').hidden = srv || !!getKey();
   const region = $('data-region');
   region.textContent = srv ? 'synced with server' : 'not connected';
   region.title = srv ? 'Data is synced with your connected server' : 'Connect a server in Settings to scan and sync';
 }
+
+// ---- storage: optional extraction-fallback API key -----------------
+const KEY_STORE = 'receipts.apiKey';
+const getKey = () => localStorage.getItem(KEY_STORE) || '';
+
+$('btn-save-key').addEventListener('click', () => {
+  const v = $('set-key').value.trim();
+  if (!v) return show('key-status', 'Paste a key first.', 'bad');
+  localStorage.setItem(KEY_STORE, v);
+  show('key-status', 'Fallback key saved on this device.', 'ok');
+});
+$('btn-clear-key').addEventListener('click', () => {
+  localStorage.removeItem(KEY_STORE);
+  $('set-key').value = '';
+  show('key-status', 'Fallback key removed.', 'ok');
+});
 
 // ---- storage: sync server -----------------------------------------
 const SRV_URL = 'receipts.serverUrl';
@@ -196,12 +212,88 @@ async function loadScaled(file, maxEdge, quality) {
 }
 
 // ---- AI extraction ----------------------------------------------
-async function extractReceipt(imageDataUrl) {
-  return (await serverFetch('/receipts/extract', {
+// Same contract as the server's contract.py — keep the two in lockstep.
+const RECEIPT_SCHEMA = {
+  type: 'object',
+  properties: {
+    is_receipt: { type: 'boolean', description: 'False if the image is not a receipt, invoice or till docket.' },
+    merchant: { type: 'string', description: 'Store or business name. Empty string if unreadable.' },
+    date: { anyOf: [{ type: 'string', description: 'Purchase date, YYYY-MM-DD.' }, { type: 'null' }] },
+    total: { anyOf: [{ type: 'number', description: 'Grand total paid.' }, { type: 'null' }] },
+    gst: { anyOf: [{ type: 'number', description: 'GST / tax component if printed.' }, { type: 'null' }] },
+    currency: { type: 'string', description: 'ISO 4217 code, e.g. AUD. Assume AUD if not shown.' },
+    category: { type: 'string', enum: CATEGORIES },
+    payment_method: { anyOf: [{ type: 'string', description: 'e.g. EFTPOS, Visa …1234, cash.' }, { type: 'null' }] },
+    items: {
+      type: 'array',
+      description: 'Line items. Omit loyalty and subtotal lines.',
+      items: {
+        type: 'object',
+        properties: {
+          description: { type: 'string' },
+          amount: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+        },
+        required: ['description', 'amount'],
+        additionalProperties: false,
+      },
+    },
+    notes: { anyOf: [{ type: 'string', description: 'Anything unclear or worth flagging.' }, { type: 'null' }] },
+  },
+  required: ['is_receipt', 'merchant', 'date', 'total', 'gst', 'currency', 'category', 'payment_method', 'items', 'notes'],
+  additionalProperties: false,
+};
+
+const PROMPT =
+  'Extract the data from this receipt photo. The user is an Australian electrical ' +
+  'apprentice organising work expenses and home building expenses. Pick the category ' +
+  'that best matches the purchase. If a value is not printed or not readable, use null ' +
+  'rather than guessing.';
+
+// Optional last resort when the server can't extract (see Settings →
+// Advanced): call the Claude API directly with the fallback key.
+async function anthropicExtract(imageDataUrl) {
+  const b64 = imageDataUrl.split(',')[1];
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ image: imageDataUrl }),
-  })).extraction;
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': getKey(),
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-opus-4-8',
+      max_tokens: 4096,
+      output_config: { format: { type: 'json_schema', schema: RECEIPT_SCHEMA } },
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+          { type: 'text', text: PROMPT },
+        ],
+      }],
+    }),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error?.message || `HTTP ${res.status}`);
+  if (body.stop_reason === 'refusal') throw new Error('The model declined to process this image.');
+  if (body.stop_reason === 'max_tokens') throw new Error('Response was cut off — try a clearer photo.');
+  const text = body.content?.find((b) => b.type === 'text')?.text;
+  if (!text) throw new Error('No data returned.');
+  return JSON.parse(text);
+}
+
+async function extractReceipt(imageDataUrl) {
+  try {
+    return (await serverFetch('/receipts/extract', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ image: imageDataUrl }),
+    })).extraction;
+  } catch (err) {
+    if (!getKey()) throw err;
+    return anthropicExtract(imageDataUrl);
+  }
 }
 
 // ---- scan flow ---------------------------------------------------
@@ -218,7 +310,7 @@ $('file-input').addEventListener('change', async (e) => {
   const files = [...e.target.files];
   e.target.value = '';
   if (!files.length) return;
-  if (!getServer()) {
+  if (!getServer() && !getKey()) {
     $('no-server-warning').hidden = false;
     return show('scan-status', 'Add your server URL and token in Settings first.', 'bad');
   }
@@ -487,6 +579,7 @@ $('btn-wipe').addEventListener('click', async () => {
 openDB().then(() => {
   $('set-server').value = localStorage.getItem(SRV_URL) || '';
   $('set-token').value = localStorage.getItem(SRV_TOKEN) || '';
+  $('set-key').value = getKey();
   refreshServerUi();
   if (getServer()) {
     syncNow().then(() => { if (!$('list').hidden) renderList(); }).catch(() => {});
