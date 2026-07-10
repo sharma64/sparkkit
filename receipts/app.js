@@ -455,20 +455,11 @@ function openDetail(id) {
   $('detail').showModal();
 }
 
-const num = (v) => {
-  const n = parseFloat(String(v).replace(/[^0-9.-]/g, ''));
-  return Number.isFinite(n) ? n : null;
-};
-
+// Extracted fields are locked — only category and notes can be changed.
 $('d-save').addEventListener('click', async () => {
   if (!editing) return;
   Object.assign(editing, {
-    merchant: $('d-merchant').value.trim() || 'Unknown merchant',
-    date: $('d-date').value || null,
-    total: num($('d-total').value),
-    gst: num($('d-gst').value),
     category: $('d-cat').value,
-    payment_method: $('d-payment').value.trim() || null,
     notes: $('d-notes').value.trim() || null,
     _dirty: true,
   });

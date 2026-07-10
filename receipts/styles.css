@@ -67,6 +67,14 @@ input, select {
   width: 100%;
 }
 input:focus, select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+input[readonly], input:disabled {
+  background: transparent;
+  border-style: dashed;
+  color: var(--muted);
+  opacity: 1; /* iOS dims disabled inputs too aggressively */
+  -webkit-text-fill-color: var(--muted);
+}
+input[readonly]:focus { outline: none; border-color: var(--line); }
 
 .row { display: flex; gap: 10px; margin-top: 14px; }
 .btn {

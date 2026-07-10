@@ -17,8 +17,9 @@ totals, and export CSV for your accountant or spreadsheet.
 2. **Scan** → take a photo (or pick several from your gallery). Each image
    is downscaled on-device, uploaded to the server for extraction, and the
    result is cached in IndexedDB with a small thumbnail.
-3. **Receipts** → search and filter by month/category, tap a receipt to review
-   or correct any field, export the current view as CSV.
+3. **Receipts** → search and filter by month/category, tap a receipt to
+   review it. Extracted fields are locked (they're what the receipt says);
+   only the category and notes can be changed. Export the current view as CSV.
 4. **Totals** → spend and GST per month, broken down by category.
 
 Scanning is disabled with a prompt until a server is connected (or a
