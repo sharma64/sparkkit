@@ -135,23 +135,24 @@
         <button type="button" class="close-x" id="d-close" aria-label="Close">✕</button>
       </div>
       <div class="grid2">
+        <!-- Extracted fields are locked; only category and notes are editable. -->
         <label class="full">Merchant
-          <input id="d-merchant" type="text" />
+          <input id="d-merchant" type="text" readonly tabindex="-1" />
         </label>
         <label>Date
-          <input id="d-date" type="date" />
+          <input id="d-date" type="date" disabled />
         </label>
         <label>Total
-          <input id="d-total" type="text" inputmode="decimal" />
+          <input id="d-total" type="text" inputmode="decimal" readonly tabindex="-1" />
         </label>
         <label>GST
-          <input id="d-gst" type="text" inputmode="decimal" />
+          <input id="d-gst" type="text" inputmode="decimal" readonly tabindex="-1" />
         </label>
         <label>Category
           <select id="d-cat"></select>
         </label>
         <label class="full">Payment
-          <input id="d-payment" type="text" />
+          <input id="d-payment" type="text" readonly tabindex="-1" />
         </label>
         <label class="full">Notes
           <input id="d-notes" type="text" />
