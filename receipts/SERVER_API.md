@@ -80,7 +80,7 @@ Returns:
 { "receipts": [ ... ] }
 ```
 
-Filters are optional. Dates are inclusive. `q` searches merchant, notes, payment method, and item descriptions.
+Filters are optional. Dates are inclusive. `q` searches merchant, category, notes, payment method, and item descriptions.
 
 ### Upsert receipt
 

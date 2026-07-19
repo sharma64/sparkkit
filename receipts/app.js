@@ -401,7 +401,7 @@ async function renderList() {
     if (m && monthKey(r.date) !== m) return false;
     if (c && r.category !== c) return false;
     if (q) {
-      const hay = [r.merchant, r.notes, r.payment_method, ...(r.items || []).map((i) => i.description)]
+      const hay = [r.merchant, r.category, r.notes, r.payment_method, ...(r.items || []).map((i) => i.description)]
         .join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
