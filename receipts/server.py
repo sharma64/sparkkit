@@ -316,6 +316,7 @@ def list_receipts(params: dict[str, list[str]]) -> list[dict]:
         def hit(r):
             hay = " ".join([
                 r.get("merchant") or "",
+                r.get("category") or "",
                 r.get("notes") or "",
                 r.get("payment_method") or "",
                 *[i.get("description", "") for i in r.get("items") or [] if isinstance(i, dict)],
