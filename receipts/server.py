@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import base64
 import csv
+import hashlib
+import hmac
 import io
 import json
 import os
+import secrets
 import shutil
 import sqlite3
 import subprocess
@@ -51,6 +54,31 @@ DB_PATH = Path(os.environ.get("SPARKKIT_RECEIPTS_DB", Path(__file__).with_name("
 TOKEN = os.environ.get("SPARKKIT_RECEIPTS_TOKEN", "")
 HOST = os.environ.get("SPARKKIT_RECEIPTS_HOST", "127.0.0.1")
 PORT = int(os.environ.get("SPARKKIT_RECEIPTS_PORT", "8787"))
+SESSION_COOKIE = "sparkkit_receipts_session"
+AUTH_FILE = Path(os.environ.get(
+    "SPARKKIT_RECEIPTS_AUTH_FILE",
+    Path.home() / ".openclaw" / "sparkkit-receipts-auth.json",
+))
+
+
+def auth_config() -> dict:
+    cfg = {}
+    if AUTH_FILE.exists():
+        try:
+            cfg = json.loads(AUTH_FILE.read_text())
+        except Exception:
+            cfg = {}
+    return {
+        "user": os.environ.get("SPARKKIT_RECEIPTS_USER") or cfg.get("user") or "sharma",
+        "password": os.environ.get("SPARKKIT_RECEIPTS_PASSWORD") or cfg.get("password") or "",
+        "session_secret": os.environ.get("SPARKKIT_RECEIPTS_SESSION_SECRET") or cfg.get("session_secret") or TOKEN,
+    }
+
+
+AUTH = auth_config()
+LOGIN_USER = AUTH["user"]
+LOGIN_PASSWORD = AUTH["password"]
+SESSION_SECRET = AUTH["session_secret"]
 
 
 def now_iso() -> str:
@@ -373,11 +401,13 @@ class Handler(BaseHTTPRequestHandler):
         # Avoid logging auth headers/bodies; keep request line only.
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
-    def send_json(self, status: int, payload: dict):
+    def send_json(self, status: int, payload: dict, *, headers: dict[str, str] | None = None):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("content-type", "application/json; charset=utf-8")
         self.send_header("content-length", str(len(body)))
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
@@ -389,15 +419,62 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def parse_cookies(self) -> dict[str, str]:
+        cookies = {}
+        for part in (self.headers.get("cookie") or "").split(";"):
+            if "=" in part:
+                k, v = part.strip().split("=", 1)
+                cookies[k] = v
+        return cookies
+
+    def sign_session(self, user: str, nonce: str) -> str:
+        msg = f"{user}:{nonce}".encode("utf-8")
+        sig = hmac.new(SESSION_SECRET.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+        return f"{user}:{nonce}:{sig}"
+
+    def valid_session(self) -> bool:
+        raw = self.parse_cookies().get(SESSION_COOKIE, "")
+        try:
+            user, nonce, sig = raw.split(":", 2)
+        except ValueError:
+            return False
+        if user != LOGIN_USER or not nonce or not SESSION_SECRET:
+            return False
+        expected = self.sign_session(user, nonce)
+        return hmac.compare_digest(raw, expected)
+
     def authorised(self) -> bool:
         if not TOKEN:
             self.send_json(500, {"error": "SPARKKIT_RECEIPTS_TOKEN is not configured"})
             return False
         expected = f"Bearer {TOKEN}"
-        if self.headers.get("authorization") != expected:
+        if self.headers.get("authorization") == expected or self.valid_session():
+            return True
+        self.send_json(401, {"error": "unauthorised"})
+        return False
+
+    def handle_login(self):
+        if not LOGIN_PASSWORD:
+            return self.send_json(503, {"error": "login is not configured on this server"})
+        try:
+            payload = json.loads(self.read_body().decode("utf-8"))
+        except json.JSONDecodeError:
+            return self.send_json(400, {"error": "invalid json"})
+        user = str(payload.get("username") or "").strip()
+        password = str(payload.get("password") or "")
+        if not (hmac.compare_digest(user, LOGIN_USER) and hmac.compare_digest(password, LOGIN_PASSWORD)):
             self.send_json(401, {"error": "unauthorised"})
-            return False
-        return True
+            return
+        nonce = secrets.token_urlsafe(24)
+        cookie = self.sign_session(user, nonce)
+        return self.send_json(200, {"ok": True, "user": user}, headers={
+            "Set-Cookie": f"{SESSION_COOKIE}={cookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000",
+        })
+
+    def handle_logout(self):
+        return self.send_json(200, {"ok": True}, headers={
+            "Set-Cookie": f"{SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
+        })
 
     def read_body(self) -> bytes:
         n = int(self.headers.get("content-length") or "0")
@@ -408,6 +485,8 @@ class Handler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
         if parsed.path == "/health":
             return self.send_json(200, {"ok": True})
+        if parsed.path == "/session":
+            return self.send_json(200, {"ok": self.valid_session(), "user": LOGIN_USER if self.valid_session() else None})
         if not self.authorised():
             return
         if parsed.path == "/receipts":
@@ -420,6 +499,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/session/login":
+            return self.handle_login()
+        if parsed.path == "/session/logout":
+            return self.handle_logout()
         if not self.authorised():
             return
         body = self.read_body()
@@ -466,6 +549,8 @@ def main() -> int:
     if not TOKEN:
         print("Refusing to start without SPARKKIT_RECEIPTS_TOKEN", file=sys.stderr)
         return 2
+    if not LOGIN_PASSWORD:
+        print("WARNING: SPARKKIT_RECEIPTS_PASSWORD is not configured; browser login is disabled", file=sys.stderr)
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"SparkKit Receipts server listening on http://{HOST}:{PORT}")
     print(f"Database: {DB_PATH}")
