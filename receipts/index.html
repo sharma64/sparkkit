@@ -84,15 +84,32 @@
       <h1>Settings</h1>
       <h2 class="section-h">Ledger sync</h2>
       <div class="card">
-        <p class="sub">Extraction and storage run on your connected server. Stays saved on this device — reconnects automatically each time you open the app.</p>
+        <p class="sub">Extraction and storage run on your connected server. Sign in once on this device — the app uses a secure same-origin session cookie instead of making you handle the server token.</p>
         <label class="full">Server URL <span>https://…/api</span>
-          <input id="set-server" type="url" autocomplete="off" placeholder="https://receipts.example.au/api" />
+          <input id="set-server" type="url" autocomplete="off" placeholder="https://receipts.circuitandsoil.au/api" />
         </label>
-        <label class="full">Server token
-          <input id="set-token" type="password" autocomplete="off" placeholder="paste the bearer token" />
+        <label class="full">Username
+          <input id="set-username" type="text" autocomplete="username" placeholder="sharma" />
+        </label>
+        <label class="full">Password
+          <input id="set-password" type="password" autocomplete="current-password" placeholder="your receipts password" />
         </label>
         <div class="row">
-          <button class="btn" id="btn-save-server">Save &amp; sync</button>
+          <button class="btn" id="btn-login-server">Sign in &amp; sync</button>
+          <button class="btn ghost" id="btn-logout-server">Sign out</button>
+        </div>
+        <p class="result" id="login-status" aria-live="polite"></p>
+        <details>
+          <summary>Advanced: bearer token fallback</summary>
+          <p class="sub">Only use this if session sign-in is unavailable. Normal phone sync should not need this.</p>
+          <label class="full">Server token
+            <input id="set-token" type="password" autocomplete="off" placeholder="paste the bearer token" />
+          </label>
+          <div class="row">
+            <button class="btn" id="btn-save-server">Save token &amp; sync</button>
+          </div>
+        </details>
+        <div class="row">
           <button class="btn ghost" id="btn-clear-server">Remove</button>
         </div>
         <div class="row">

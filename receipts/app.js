@@ -76,11 +76,12 @@ $('btn-clear-key').addEventListener('click', () => {
 const SRV_URL = 'receipts.serverUrl';
 const SRV_TOKEN = 'receipts.serverToken';
 const SRV_DELETES = 'receipts.pendingDeletes';
+const DEFAULT_SERVER_URL = `${location.origin}/api`;
 
 const getServer = () => {
-  const url = (localStorage.getItem(SRV_URL) || '').replace(/\/+$/, '');
+  const url = (localStorage.getItem(SRV_URL) || DEFAULT_SERVER_URL).replace(/\/+$/, '');
   const token = localStorage.getItem(SRV_TOKEN) || '';
-  return url && token ? { url, token } : null;
+  return url ? { url, token } : null;
 };
 const pendingDeletes = () => JSON.parse(localStorage.getItem(SRV_DELETES) || '[]');
 const setPendingDeletes = (ids) => localStorage.setItem(SRV_DELETES, JSON.stringify(ids));
@@ -89,13 +90,35 @@ const queueDelete = (id) => setPendingDeletes([...new Set([...pendingDeletes(), 
 async function serverFetch(path, opts = {}) {
   const srv = getServer();
   if (!srv) throw new Error('No server configured.');
+  const headers = { ...(opts.headers || {}) };
+  if (srv.token) headers.authorization = `Bearer ${srv.token}`;
   const res = await fetch(srv.url + path, {
     ...opts,
-    headers: { authorization: `Bearer ${srv.token}`, ...(opts.headers || {}) },
+    credentials: 'same-origin',
+    headers,
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(body?.error || `server error ${res.status}`);
   return body;
+}
+
+async function refreshLoginState() {
+  const srv = getServer();
+  const el = $('login-status');
+  if (!srv || !el) return false;
+  try {
+    const res = await fetch(srv.url + '/session', { credentials: 'same-origin' });
+    const body = await res.json().catch(() => null);
+    const ok = !!(res.ok && body?.ok);
+    el.textContent = ok ? `Signed in as ${body.user || 'user'} — sync ready.` : 'Not signed in.';
+    el.className = 'result ' + (ok ? 'ok' : 'bad');
+    refreshServerUi();
+    return ok;
+  } catch (err) {
+    el.textContent = `Could not check sign-in: ${err.message}`;
+    el.className = 'result bad';
+    return false;
+  }
 }
 
 // Push dirty records and queued deletions, then pull the server's view.
@@ -142,11 +165,12 @@ async function syncNow() {
 const syncSoon = () => { if (getServer()) syncNow().catch(() => {}); };
 
 $('btn-save-server').addEventListener('click', async () => {
-  const url = $('set-server').value.trim().replace(/\/+$/, '');
+  const url = ($('set-server').value.trim() || DEFAULT_SERVER_URL).replace(/\/+$/, '');
   const token = $('set-token').value.trim();
-  if (!url || !token) return show('server-status', 'Enter the server URL and token.', 'bad');
+  if (!url) return show('server-status', 'Enter the server URL.', 'bad');
   localStorage.setItem(SRV_URL, url);
-  localStorage.setItem(SRV_TOKEN, token);
+  if (token) localStorage.setItem(SRV_TOKEN, token);
+  else localStorage.removeItem(SRV_TOKEN);
   refreshServerUi();
   show('server-status', 'Connecting…');
   try {
@@ -160,6 +184,39 @@ $('btn-save-server').addEventListener('click', async () => {
   } catch (err) {
     show('server-status', `Could not connect: ${esc(err.message)}`, 'bad');
   }
+});
+$('btn-login-server').addEventListener('click', async () => {
+  const url = ($('set-server').value.trim() || DEFAULT_SERVER_URL).replace(/\/+$/, '');
+  const username = $('set-username').value.trim();
+  const password = $('set-password').value;
+  if (!username || !password) return show('login-status', 'Enter username and password.', 'bad');
+  localStorage.setItem(SRV_URL, url);
+  localStorage.setItem('receipts.username', username);
+  localStorage.removeItem(SRV_TOKEN);
+  show('login-status', 'Signing in…');
+  try {
+    const res = await fetch(url + '/session/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(body?.error || `server error ${res.status}`);
+    $('set-password').value = '';
+    show('login-status', 'Signed in — syncing…', 'ok');
+    await syncNow();
+    show('login-status', 'Signed in — synced.', 'ok');
+    renderList();
+  } catch (err) {
+    show('login-status', `Sign-in failed: ${esc(err.message)}`, 'bad');
+  }
+});
+$('btn-logout-server').addEventListener('click', async () => {
+  const srv = getServer();
+  if (!srv) return;
+  await fetch(srv.url + '/session/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+  show('login-status', 'Signed out on this device.', 'ok');
 });
 $('btn-clear-server').addEventListener('click', () => {
   localStorage.removeItem(SRV_URL);
@@ -607,10 +664,12 @@ $('btn-wipe').addEventListener('click', async () => {
 
 // ---- init -----------------------------------------------------------
 openDB().then(() => {
-  $('set-server').value = localStorage.getItem(SRV_URL) || '';
+  $('set-server').value = localStorage.getItem(SRV_URL) || DEFAULT_SERVER_URL;
   $('set-token').value = localStorage.getItem(SRV_TOKEN) || '';
+  if ($('set-username')) $('set-username').value = localStorage.getItem('receipts.username') || 'sharma';
   $('set-key').value = getKey();
   refreshServerUi();
+  refreshLoginState();
   if (getServer()) {
     syncNow().then(() => { if (!$('list').hidden) renderList(); }).catch(() => {});
   }
