@@ -13,6 +13,14 @@ const monthLabel = (key) => {
   const [y, m] = key.split('-');
   return new Date(+y, +m - 1, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
 };
+// Australian financial year: 1 Jul – 30 Jun. A month in Jul–Dec belongs to the
+// FY that starts that year; Jan–Jun belongs to the FY that started the year before.
+const fyStart = (monthK) => {
+  if (monthK === 'unknown') return null;
+  const [y, m] = monthK.split('-').map(Number);
+  return m >= 7 ? y : y - 1;
+};
+const fyLabel = (startY) => `FY ${startY}–${String(startY + 1).slice(2)}`;
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -482,21 +490,48 @@ $('d-delete').addEventListener('click', async () => {
 $('d-close').addEventListener('click', () => $('detail').close());
 
 // ---- totals -------------------------------------------------------
+const sum = (arr, f) => arr.reduce((s, r) => s + (Number.isFinite(f(r)) ? f(r) : 0), 0);
+
 async function renderTotals() {
   await refreshCache();
-  const byMonth = {};
-  for (const r of cache) {
-    const k = monthKey(r.date);
-    (byMonth[k] ||= []).push(r);
-  }
-  const months = Object.keys(byMonth).sort().reverse();
-  const sel = $('tot-month');
-  const current = months.includes(sel.value) ? sel.value : months[0] || '';
-  sel.innerHTML = months.map((m) =>
-    `<option value="${m}"${m === current ? ' selected' : ''}>${esc(monthLabel(m))}</option>`).join('');
 
-  const rs = byMonth[current] || [];
-  const sum = (arr, f) => arr.reduce((s, r) => s + (Number.isFinite(f(r)) ? f(r) : 0), 0);
+  // Group receipts by month, and note which financial years have data.
+  const byMonth = {};
+  for (const r of cache) (byMonth[monthKey(r.date)] ||= []).push(r);
+  const months = Object.keys(byMonth).sort().reverse();
+  const fys = [...new Set(months.map(fyStart).filter((y) => y !== null))].sort((a, b) => b - a);
+
+  // Build the period picker: financial years first (current one = year to date),
+  // then individual months. Values are prefixed so we can tell them apart.
+  const nowFy = fyStart(new Date().toISOString().slice(0, 7));
+  const fyOpts = fys.map((y) =>
+    `<option value="fy:${y}">${esc(fyLabel(y))}${y === nowFy ? ' (year to date)' : ''}</option>`).join('');
+  const monthOpts = months.map((m) =>
+    `<option value="m:${m}">${esc(monthLabel(m))}</option>`).join('');
+
+  const sel = $('tot-period');
+  const prev = sel.value;
+  // Default to the current financial year when nothing valid is selected yet.
+  const defaultVal = fys.includes(nowFy) ? `fy:${nowFy}` : (fys.length ? `fy:${fys[0]}` : (months.length ? `m:${months[0]}` : ''));
+  sel.innerHTML =
+    (fyOpts ? `<optgroup label="Financial year">${fyOpts}</optgroup>` : '') +
+    (monthOpts ? `<optgroup label="Month">${monthOpts}</optgroup>` : '');
+  const current = [...sel.options].some((o) => o.value === prev) ? prev : defaultVal;
+  sel.value = current;
+
+  // Records for the selected period, and the FY those months sit inside.
+  let rs, contextFy;
+  if (current.startsWith('fy:')) {
+    contextFy = Number(current.slice(3));
+    rs = cache.filter((r) => fyStart(monthKey(r.date)) === contextFy);
+  } else if (current.startsWith('m:')) {
+    const mk = current.slice(2);
+    rs = byMonth[mk] || [];
+    contextFy = fyStart(mk);
+  } else {
+    rs = []; contextFy = null;
+  }
+
   $('tot-spend').textContent = rs.length ? money(sum(rs, (r) => r.total)) : '–';
   $('tot-gst').textContent = rs.length ? money(sum(rs, (r) => r.gst)) : '–';
   $('tot-count').textContent = rs.length || '–';
@@ -511,10 +546,14 @@ async function renderTotals() {
       <span class="bar-label">${esc(c)}</span>
       <div class="bar" style="width:${Math.max(2, (v / maxCat) * 100)}%"></div>
       <span class="bar-val">${money(v)}</span>
-    </div>`).join('') || '<p class="r-empty">No receipts this month.</p>';
+    </div>`).join('') || '<p class="r-empty">No receipts in this period.</p>';
 
-  const maxMonth = Math.max(1, ...months.map((m) => sum(byMonth[m], (r) => r.total)));
-  $('tot-months').innerHTML = months.map((m) => {
+  // "By month" breakdown, scoped to the selected financial year (all months if
+  // the selection has no date).
+  const monthList = contextFy === null ? months : months.filter((m) => fyStart(m) === contextFy);
+  $('tot-months-h').textContent = contextFy === null ? 'By month' : `By month · ${fyLabel(contextFy)}`;
+  const maxMonth = Math.max(1, ...monthList.map((m) => sum(byMonth[m], (r) => r.total)));
+  $('tot-months').innerHTML = monthList.map((m) => {
     const v = sum(byMonth[m], (r) => r.total);
     return `
       <div class="bar-row">
@@ -524,7 +563,7 @@ async function renderTotals() {
       </div>`;
   }).join('') || '<p class="r-empty">No receipts yet.</p>';
 }
-$('tot-month').addEventListener('change', renderTotals);
+$('tot-period').addEventListener('change', renderTotals);
 
 // ---- CSV export ----------------------------------------------------
 function toCSV(rows) {

@@ -63,10 +63,10 @@
     <!-- TOTALS -->
     <section class="screen" id="totals" data-screen hidden>
       <h1>Totals</h1>
-      <p class="sub">Spend and GST, by month and category.</p>
+      <p class="sub">Spend and GST by financial year or month. Financial year runs Jul–Jun.</p>
       <div class="card">
-        <label class="full">Month
-          <select id="tot-month"></select>
+        <label class="full">Period
+          <select id="tot-period"></select>
         </label>
         <div class="stat-row">
           <div class="stat"><span class="stat-label">Spend</span><span class="stat-val" id="tot-spend">–</span></div>
@@ -75,7 +75,7 @@
         </div>
         <div id="tot-cats"></div>
       </div>
-      <h2 class="section-h">By month</h2>
+      <h2 class="section-h" id="tot-months-h">By month</h2>
       <div class="card" id="tot-months"></div>
     </section>
 
